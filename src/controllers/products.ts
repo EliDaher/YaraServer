@@ -1,7 +1,6 @@
 import { Request, Response } from "express";
 import { Product } from "../types/product";
-import { v4 as uuidv4 } from "uuid";
-import { ref, get, set, update, remove } from "firebase/database";
+import { ref, get, set, push, remove } from "firebase/database";
 import { database } from "../firebaseConfig";
 
 // ✅ جلب جميع المنتجات
@@ -20,22 +19,22 @@ export const getAll = async (_req: Request, res: Response) => {
 export const getProductById = async (req: Request, res: Response) => {
   try {
     const { id } = req.body;
-    if (!id)
-      return res.status(400).json({ message: "❌ product id is required" });
+    if (!id) return res.status(400).json({ message: "product id is required" });
 
     const productsSnapshot = await get(ref(database, "products"));
     if (!productsSnapshot.exists())
-      return res.status(404).json({ message: "❌ المنتج غير موجود" });
+      return res.status(404).json({ message: "المنتج غير موجود" });
 
-    const productsData = productsSnapshot.val();
-    let foundProduct: Product | null = null;
+    const warehouses = productsSnapshot.val();
+    let foundProduct: any = null;
+    let foundWarehouse: string | null = null;
 
-    // البحث عن المنتج داخل جميع المستودعات
-    for (const warehouse in productsData) {
-      for (const code in productsData[warehouse]) {
-        const prod = productsData[warehouse][code];
-        if (prod.id === id) {
-          foundProduct = prod;
+    for (const warehouse in warehouses) {
+      for (const productId in warehouses[warehouse]) {
+        const p = warehouses[warehouse][productId];
+        if (p.id === id) {
+          foundProduct = p;
+          foundWarehouse = warehouse;
           break;
         }
       }
@@ -104,36 +103,31 @@ export const getProductById = async (req: Request, res: Response) => {
   }
 };
 
-// ✅ إنشاء أو تحديث منتج
 export const create = async (req: Request, res: Response) => {
   try {
     const newProduct: Product = req.body;
+
+
+    if (!newProduct.warehouse)
+      return res.status(400).json({ message: "warehouse is required" });
+
     const NowDate = new Date().toLocaleString();
 
-    const productRef = ref(
-      database,
-      `products/${newProduct.warehouse}/${newProduct.code}`
-    );
-    const snapshot = await get(productRef);
+    const warehouseRef = ref(database, `products/${newProduct.warehouse}`);
+    const newRef = push(warehouseRef);
 
-    if (snapshot.exists()) {
-      const existingProduct = snapshot.val();
-      existingProduct.quantity += newProduct.quantity;
-      existingProduct.updatedDate = NowDate;
-      await set(productRef, existingProduct);
-      return res.json({
-        message: "✅ تم تحديث كمية المنتج",
-        data: existingProduct,
-      });
-    }
-
-    const productToAdd: Product = {
+    const productData: Product = {
       ...newProduct,
+      id: newRef.key!,
       updatedDate: NowDate,
-      id: uuidv4(),
     };
-    await set(productRef, productToAdd);
-    res.json({ message: "✅ تم إنشاء المنتج", data: productToAdd });
+
+    await set(newRef, productData);
+
+    res.json({
+      message: "تم إنشاء المنتج بنجاح",
+      data: productData,
+    });
   } catch (error) {
     console.error("❌ خطأ أثناء إنشاء المنتج:", error);
     res.status(500).json({ message: "حدث خطأ أثناء إنشاء المنتج" });
@@ -164,103 +158,117 @@ export const updateQuantityOnSell = async (
   return existingProduct;
 };
 
-// ✅ تحديث بيانات منتج
 export const updateProduct = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const updatedFields: Partial<Product> = req.body;
-    const NowDate = new Date().toLocaleString();
+    const updatedFields = req.body;
 
-    const productsSnapshot = await get(ref(database, "products"));
-    if (!productsSnapshot.exists())
-      return res.status(404).json({ message: "❌ المنتج غير موجود" });
+    const snapshot = await get(ref(database, "products"));
+    if (!snapshot.exists())
+      return res.status(404).json({ message: "المنتج غير موجود" });
 
-    const productsData = productsSnapshot.val();
-    let productFound = false;
+    const warehouses = snapshot.val();
 
-    for (const warehouse in productsData) {
-      for (const code in productsData[warehouse]) {
-        const product = productsData[warehouse][code];
-        if (product.id === id) {
-          const updatedProduct = {
-            ...product,
+    for (const warehouse in warehouses) {
+      for (const productId in warehouses[warehouse]) {
+        if (productId === id) {
+          const newData = {
+            ...warehouses[warehouse][productId],
             ...updatedFields,
-            updatedDate: NowDate,
+            updatedDate: new Date().toLocaleString(),
           };
+
           await set(
-            ref(database, `products/${warehouse}/${code}`),
-            updatedProduct
+            ref(database, `products/${warehouse}/${productId}`),
+            newData
           );
-          productFound = true;
-          return res.json({
-            message: "✅ تم تحديث بيانات المنتج",
-            data: updatedProduct,
-          });
+
+          return res.json({ message: "تم تحديث المنتج", data: newData });
         }
       }
     }
 
-    if (!productFound)
-      return res.status(404).json({ message: "❌ المنتج غير موجود" });
+    res.status(404).json({ message: "المنتج غير موجود" });
   } catch (error) {
     console.error("❌ خطأ أثناء تحديث المنتج:", error);
     res.status(500).json({ message: "حدث خطأ أثناء تحديث المنتج" });
   }
 };
 
-// ✅ حذف منتج
 export const deleteProduct = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
-    const productsSnapshot = await get(ref(database, "products"));
-    if (!productsSnapshot.exists())
-      return res.status(404).json({ message: "❌ المنتج غير موجود" });
+    const snapshot = await get(ref(database, "products"));
+    if (!snapshot.exists())
+      return res.status(404).json({ message: "المنتج غير موجود" });
 
-    const productsData = productsSnapshot.val();
-    let productFound = false;
+    const warehouses = snapshot.val();
 
-    for (const warehouse in productsData) {
-      for (const code in productsData[warehouse]) {
-        const product = productsData[warehouse][code];
-        if (product.id === id) {
-          await remove(ref(database, `products/${warehouse}/${code}`));
-          productFound = true;
-          return res.json({ message: "🗑️ تم حذف المنتج بنجاح" });
+    for (const warehouse in warehouses) {
+      for (const productId in warehouses[warehouse]) {
+        if (productId === id) {
+          await remove(ref(database, `products/${warehouse}/${productId}`));
+          return res.json({ message: "تم حذف المنتج" });
         }
       }
     }
 
-    if (!productFound)
-      return res.status(404).json({ message: "❌ المنتج غير موجود" });
+    res.status(404).json({ message: "المنتج غير موجود" });
   } catch (error) {
     console.error("❌ خطأ أثناء حذف المنتج:", error);
     res.status(500).json({ message: "حدث خطأ أثناء حذف المنتج" });
   }
 };
+
 export const createOrUpdateProductInternal = async (
   newProduct: Product
 ): Promise<Product> => {
   const NowDate = new Date().toLocaleString();
-  const productRef = ref(
-    database,
-    `products/${newProduct.warehouse}/${newProduct.code}`
-  );
-  const snapshot = await get(productRef);
+
+  const warehousePath = `products/${newProduct.warehouse}`;
+  const warehouseRef = ref(database, warehousePath);
+
+  // 1) قراءة كل المنتجات داخل نفس المستودع
+  const snapshot = await get(warehouseRef);
 
   if (snapshot.exists()) {
-    const existingProduct: Product = snapshot.val();
-    existingProduct.quantity += newProduct.quantity;
-    existingProduct.updatedDate = NowDate;
-    await set(productRef, existingProduct);
-    return existingProduct;
+    const products = snapshot.val();
+
+    // 2) البحث عن منتج بنفس code
+    for (const productId in products) {
+      const existingProduct: Product = products[productId];
+
+      if (existingProduct.code === newProduct.code) {
+        // تحديث المنتج
+        const updatedProduct: Product = {
+          ...existingProduct,
+          ...newProduct,
+          quantity: existingProduct.quantity + newProduct.quantity,
+          updatedDate: NowDate,
+          id: productId, // مهم جداً: المفتاح من الـ DB
+        };
+
+        // حفظ التحديث
+        await set(
+          ref(database, `${warehousePath}/${productId}`),
+          updatedProduct
+        );
+        return updatedProduct;
+      }
+    }
   }
+
+  // 3) إذا لم يوجد منتج بنفس code → نقوم بالإنشاء
+  const newRef = push(warehouseRef);
 
   const productToAdd: Product = {
     ...newProduct,
     updatedDate: NowDate,
-    id: uuidv4(),
+    id: newRef.key!, // id هو مفتاح push في Firebase
   };
-  await set(productRef, productToAdd);
+
+  await set(newRef, productToAdd);
+
   return productToAdd;
 };

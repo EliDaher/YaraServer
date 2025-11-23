@@ -41,17 +41,17 @@ export const handlePurchase = async ({
   const purchaseData = await createPurchaseInternal(newPurchase);
 
   // 2- تحديث مخزون المنتجات
-  createOrUpdateProductInternal(newProduct);
+  await createOrUpdateProductInternal(newProduct);
 
   // 3- تعديل رصيد المورد (إضافة دين جديد)
-  updateSupplierInternal(purchaseData.supplierId, purchaseData);
+  await updateSupplierInternal(purchaseData.supplierId, purchaseData);
 
   // 4- اضافة دفعة في حالة ودجودها
   if (
     purchaseData.remainingDebt > 0 &&
     purchaseData.remainingDebt < purchaseData.totalPrice
   ) {
-    createPaymentInternal({
+    await createPaymentInternal({
       type: "expense",
       supplierId: purchaseData.supplierId,
       amount: -(purchaseData.totalPrice - purchaseData.remainingDebt),
@@ -65,7 +65,7 @@ export const handlePurchase = async ({
     });
   } else if (purchaseData.remainingDebt == 0) {
     // 5- دين كامل
-    createPaymentInternal({
+    await createPaymentInternal({
       type: "expense",
       supplierId: purchaseData.supplierId,
       amount: -purchaseData.totalPrice,
