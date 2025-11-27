@@ -87,15 +87,15 @@ export const handleSell = async ({ newSell }: { newSell: sell }) => {
     const sellData = await createSellInternal(newSell);
 
     // 2- تحديث مخزون المنتجات
-    newSell.products.forEach((p) => {
-      updateQuantityOnSell(p.code, p.warehouse, p.qty);
+    newSell.products.forEach(async (p) => {
+      await updateQuantityOnSell(p.productId, p.warehouse, p.qty);
     });
 
     // 3- تعديل رصيد المورد (إضافة دين جديد)
-    updateCustomerInternal(sellData.customerId, sellData);
+    await updateCustomerInternal(sellData.customerId, sellData);
 
     if (sellData.remainingDebt == 0) {
-      createPaymentInternal({
+      await createPaymentInternal({
         type: "income",
         customerId: sellData.customerId,
         amount: sellData.totalPrice,
@@ -106,7 +106,7 @@ export const handleSell = async ({ newSell }: { newSell: sell }) => {
       });
     } else if (sellData.remainingDebt < sellData.totalPrice) {
       // 4- اضافة دفعة في حالة ودجودها
-      createPaymentInternal({
+      await createPaymentInternal({
         type: "income",
         customerId: sellData.customerId,
         amount: sellData.totalPrice - sellData.remainingDebt,
@@ -203,7 +203,7 @@ export const handleSupplierReturn = async (newReturn: {
 
     // 5️⃣ تحديث مخزون المنتجات
     await updateQuantityOnSell(
-      newReturn.productCode,
+      newReturn.productId,
       newReturn.warehouse,
       newReturn.qty
     );
@@ -215,7 +215,7 @@ export const handleSupplierReturn = async (newReturn: {
   }
 };
 
-export const handleCustomerReturn = (newReturn: {
+export const handleCustomerReturn = async (newReturn: {
   productCode: string;
   customerId: string;
   warehouse: string;
@@ -228,10 +228,10 @@ export const handleCustomerReturn = (newReturn: {
   reason: string;
 }) => {
   //1- انشاء سجل اعادة
-  createReturnInternal({ ...newReturn, type: "sale-return" });
+  await createReturnInternal({ ...newReturn, type: "sale-return" });
 
   //2- انشاء سجل مالي
-  createPaymentInternal({
+  await createPaymentInternal({
     type: "return",
     customerId: newReturn.customerId,
     amount: -(newReturn.returnType == "cash"
@@ -247,16 +247,19 @@ export const handleCustomerReturn = (newReturn: {
 
   //3- تحديث رصيد الزبون
   newReturn.returnType == "debt"
-    ? updateCustomerBalanceInternal(newReturn.customerId, newReturn.returnValue)
-    : newReturn.returnType == "part"
+    ? await updateCustomerBalanceInternal(
+        newReturn.customerId,
+        newReturn.returnValue
+      )
+    : (await newReturn.returnType) == "part"
     ? updateCustomerBalanceInternal(
         newReturn.customerId,
         newReturn.returnValue - newReturn.partValue
       )
-    : updateSupplierBalanceInternal(newReturn.customerId, 0);
+    : await updateSupplierBalanceInternal(newReturn.customerId, 0);
 
   //4- تعديل الكمية في الفاتورة
-  returnProductsFromSellInternal(newReturn.referenceId, [
+  await returnProductsFromSellInternal(newReturn.referenceId, [
     {
       code: newReturn.productCode,
       warehouse: newReturn.warehouse,
@@ -265,8 +268,8 @@ export const handleCustomerReturn = (newReturn: {
   ]);
 
   //5- تعديل الكمية في المخزون
-  updateQuantityOnSell(
-    newReturn.productCode,
+  await updateQuantityOnSell(
+    newReturn.productId,
     newReturn.warehouse,
     newReturn.qty
   );
