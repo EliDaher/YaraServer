@@ -87,8 +87,9 @@ export const handleSell = async ({ newSell }: { newSell: sell }) => {
     const sellData = await createSellInternal(newSell);
 
     // 2- تحديث مخزون المنتجات
+    console.log(newSell)
     newSell.products.forEach(async (p) => {
-      await updateQuantityOnSell(p.productId, p.warehouse, p.qty);
+      await updateQuantityOnSell(p.id, p.warehouse, p.qty);
     });
 
     // 3- تعديل رصيد المورد (إضافة دين جديد)

@@ -4,20 +4,22 @@ export interface sell {
   totalPrice: number; // المجموع الكلي للفاتورة
   paymentStatus: "cash" | "part" | "debt"; // حالة الدفع
   remainingDebt: number; // المبلغ المتبقي على الزبون
-  currency: string,
-  exchangeRate: number,
-  amount_base: number,
+  currency: string;
+  exchangeRate: number;
+  amount_base: number;
   products: {
-    productId: string; // معرف المنتج
-    code: string; // كود المنتج
-    name: string; // اسم المنتج
-    warehouse: string; // المستودع
-    quantity: number; // الكمية المباعة
-    sellPrice: number; // سعر الوحدة عند البيع
-    unit?: string; // وحدة القياس (اختياري)
-    qty: number; // الكمية المباعة (اختياري)
-    totalPrice: number; // السعر الإجمالي (quantity * sellPrice)
+    category: string;
+    code: string;
+    id: string;
+    name: string;
+    payPrice: number;
+    quantity: number;
+    sellPrice: number;
+    unit: string;
+    updatedDate: string;
+    warehouse: string;
+    qty: number;
   }[];
   date?: string; // تاريخ العملية
-  partValue?: number
+  partValue?: number;
 }
