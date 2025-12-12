@@ -139,7 +139,7 @@ export const updateQuantityOnSell = async (
   productId: string,
   warehouse: string,
   soldQuantity: number
-): Promise<Product | null> => {
+): Promise<Product | null> => {  
   const productRef = ref(database, `products/${warehouse}/${productId}`);
   const snapshot = await get(productRef);
   if (!snapshot.exists()) return null;
@@ -272,3 +272,58 @@ export const createOrUpdateProductInternal = async (
 
   return productToAdd;
 };
+
+
+// ✅ جلب منتج واحد حسب id + المشتريات والمبيعات
+export const getProductByIdInternal = async (id: string) => {
+  try {
+    if (!id) return { message: "product id is required" };
+
+    const productsSnapshot = await get(ref(database, "products"));
+    if (!productsSnapshot.exists())
+      return { message: "المنتج غير موجود" };
+
+    const warehouses = productsSnapshot.val();
+    let foundProduct: any = null;
+    let foundWarehouse: string | null = null;
+
+    for (const warehouse in warehouses) {
+      for (const productId in warehouses[warehouse]) {
+        const p = warehouses[warehouse][productId];
+        if (p.id === id) {
+          foundProduct = p;
+          foundWarehouse = warehouse;
+          break;
+        }
+      }
+      if (foundProduct) break;
+    }
+
+    if (!foundProduct)
+      return { message: "❌ المنتج غير موجود" };
+
+    
+
+    return { product: foundProduct };
+  } catch (error) {
+    console.error("❌ خطأ في جلب المنتج:", error);
+    return { message: "حدث خطأ أثناء جلب المنتج" };
+  }
+};
+
+export const getAllWarehouses = async (req: Request, res: Response) => {
+  try {
+
+    const productsSnapshot = await get(ref(database, "products"));
+    if (!productsSnapshot.exists()) return { message: "المنتج غير موجود" };
+
+    const warehouses = productsSnapshot.val();
+    const warehouseName = Object.keys(warehouses)
+
+    res.json({warehouses: warehouseName})
+
+  } catch (error) {
+    console.error("❌ خطأ في جلب المستودعات:", error);
+    res.json({ message: "حدث خطأ أثناء جلب المستودعات" });
+  }
+}

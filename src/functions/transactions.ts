@@ -6,6 +6,8 @@ import {
 import { createPaymentInternal } from "../controllers/payments";
 import {
   createOrUpdateProductInternal,
+  getProductById,
+  getProductByIdInternal,
   updateQuantityOnSell,
 } from "../controllers/products";
 import {
@@ -240,7 +242,7 @@ export const handleCustomerReturn = async (newReturn: {
       : newReturn.returnType == "part"
       ? newReturn.partValue
       : 0),
-    note: `اعادة منتجات من الزبون`,
+    note: `اعادة منتجات من الزبون (${newReturn.productCode} عدد ${newReturn.qty})`,
     currency: "USD",
     exchangeRate: 0,
     amount_base: 0,
@@ -274,4 +276,62 @@ export const handleCustomerReturn = async (newReturn: {
     newReturn.warehouse,
     newReturn.qty
   );
+};
+
+
+export const warehouseTransfer = async (transferData: {
+  productId: string;
+  oldWarehouse: string;
+  newWarehouse: string;
+  exchangeRate: number;
+  amount_base: number;
+  amount: number;
+  currency: string;
+  quantity: number;
+  note: string;
+  newSellPrice?: number;
+}) => {
+
+  try{
+
+    const product = await getProductByIdInternal(transferData.productId);
+
+    if (product?.message) {
+      return product?.message;
+    }
+
+    //انقاص الكمية من المخزون القديم
+    await updateQuantityOnSell(
+      transferData.productId,
+      transferData.oldWarehouse,
+      transferData.quantity
+    );
+
+    //انشاء او تعديل كمية في المستودع الجديد
+    await createOrUpdateProductInternal({
+      ...product?.product,
+      warehouse: transferData.newWarehouse,
+      quantity: transferData.quantity,
+      sellPrice: transferData.newSellPrice || product?.product.sellPrice,
+    });
+
+    //انشاء فاتورة في حالة وجود تكلفة نقل
+    if (transferData.amount > 0) {
+      await createPaymentInternal({
+        type: "expense",
+        supplierId: "transfer",
+        currency: transferData.currency,
+        exchangeRate: transferData.exchangeRate,
+        amount_base: transferData.amount_base,
+        amount: Number(-transferData.amount),
+        note:
+          `نقل ${product.product.name} // ${transferData.note}` ||
+          `Transfer: ${product.product.name || transferData.productId}`,
+      });
+    }
+  
+  } catch (err) {
+    console.log(err)
+    return (err)
+  }
 };

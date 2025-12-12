@@ -138,7 +138,7 @@ export const createReturnInternal = async (newReturn: ReturnData) => {
     const db = getDatabase();
     const productRef = ref(
       db,
-      `products/${newReturn.warehouse}/${newReturn.productCode}`
+      `products/${newReturn.warehouse}/${newReturn.productId}`
     );
     const productSnap = await get(productRef);
 

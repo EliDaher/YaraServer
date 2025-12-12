@@ -1,5 +1,5 @@
 import express, { Request, Response } from "express";
-import { customerPayment, handleCustomerReturn, handlePurchase, handleSell, handleSupplierReturn, supplierPayment } from "../functions/transactions";
+import { customerPayment, handleCustomerReturn, handlePurchase, handleSell, handleSupplierReturn, supplierPayment, warehouseTransfer } from "../functions/transactions";
 
 const router = express.Router();
 
@@ -76,6 +76,19 @@ router.post("/CustomerReturn", (req: Request, res: Response) => {
     }
     const result = handleCustomerReturn(newReturn);
     res.json({ message: "✅ تمت عملية الدفع", data: result });
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+});
+
+router.post("/warehouseTransfer", (req: Request, res: Response) => {
+  try {
+    const { transferData } = req.body;
+    if (!transferData) {
+      throw new Error("❌ بيانات الدفع غير مكتملة");
+    }
+    const result = warehouseTransfer(transferData);
+    res.json({ message: "✅ تمت عملية النقل بين المستودعات", data: result });
   } catch (error: any) {
     res.status(400).json({ message: error.message });
   }
