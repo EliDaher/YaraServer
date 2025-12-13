@@ -231,7 +231,7 @@ export const handleCustomerReturn = async (newReturn: {
   reason: string;
 }) => {
   //1- انشاء سجل اعادة
-  await createReturnInternal({ ...newReturn, type: "sale-return" });
+  await createReturnInternal({ ...newReturn, qty: -newReturn.qty, type: "sale-return" });
 
   //2- انشاء سجل مالي
   await createPaymentInternal({
@@ -259,7 +259,7 @@ export const handleCustomerReturn = async (newReturn: {
         newReturn.customerId,
         newReturn.returnValue - newReturn.partValue
       )
-    : await updateSupplierBalanceInternal(newReturn.customerId, 0);
+    : await updateCustomerBalanceInternal(newReturn.customerId, 0);
 
   //4- تعديل الكمية في الفاتورة
   await returnProductsFromSellInternal(newReturn.referenceId, [
@@ -270,12 +270,12 @@ export const handleCustomerReturn = async (newReturn: {
     },
   ]);
 
-  //5- تعديل الكمية في المخزون
-  await updateQuantityOnSell(
-    newReturn.productId,
-    newReturn.warehouse,
-    newReturn.qty
-  );
+  // //5- تعديل الكمية في المخزون
+  // await updateQuantityOnSell(
+  //   newReturn.productId,
+  //   newReturn.warehouse,
+  //   newReturn.qty
+  // );
 };
 
 

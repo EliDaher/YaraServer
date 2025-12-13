@@ -68,13 +68,13 @@ router.post("/SupplierReturn", (req: Request, res: Response) => {
   }
 });
 
-router.post("/CustomerReturn", (req: Request, res: Response) => {
+router.post("/CustomerReturn", async (req: Request, res: Response) => {
   try {
     const { newReturn } = req.body;
     if (!newReturn) {
       throw new Error("❌ بيانات الدفع غير مكتملة");
     }
-    const result = handleCustomerReturn(newReturn);
+    const result = await handleCustomerReturn(newReturn);
     res.json({ message: "✅ تمت عملية الدفع", data: result });
   } catch (error: any) {
     res.status(400).json({ message: error.message });

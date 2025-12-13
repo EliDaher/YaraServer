@@ -141,18 +141,25 @@ export const updateQuantityOnSell = async (
   soldQuantity: number
 ): Promise<Product | null> => {  
   const productRef = ref(database, `products/${warehouse}/${productId}`);
+  console.log(soldQuantity)
   const snapshot = await get(productRef);
   if (!snapshot.exists()) return null;
 
   const existingProduct: Product = snapshot.val();
   if (existingProduct.quantity < soldQuantity) {
+    console.log(
+      `❌ الكمية غير كافية. المتاح: ${existingProduct.quantity}, المطلوب: ${soldQuantity}`
+    );
     throw new Error(
       `❌ الكمية غير كافية. المتاح: ${existingProduct.quantity}, المطلوب: ${soldQuantity}`
     );
   }
+  console.log(existingProduct)
 
-  existingProduct.quantity -= soldQuantity;
+  const newQuantity = existingProduct.quantity - soldQuantity;
+  existingProduct.quantity = newQuantity;
   existingProduct.updatedDate = new Date().toLocaleString();
+  console.log(existingProduct)
   await set(productRef, existingProduct);
 
   return existingProduct;
