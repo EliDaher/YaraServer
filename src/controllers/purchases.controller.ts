@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import { v4 as uuidv4 } from "uuid";
 import { purchase } from "../types/purchase";
 import { ref, get, set, update, remove } from "firebase/database";
-import { createOrUpdateProductInternal } from "./products";
+import { createOrUpdateProductInternal } from "./products.controller";
 import { database } from "../firebaseConfig";
 
 // ✅ الحصول على جميع عمليات الشراء

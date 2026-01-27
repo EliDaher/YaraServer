@@ -1,6 +1,6 @@
 
 import express from 'express';
-import { createPayment, getAll, getMonthPayments } from '../controllers/payments';
+import { createPayment, getAll, getMonthPayments } from '../controllers/payments.controller';
 const router = express.Router();
 
 router.get('/', getAll);

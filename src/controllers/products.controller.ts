@@ -44,6 +44,22 @@ export const getProductById = async (req: Request, res: Response) => {
     if (!foundProduct)
       return res.status(404).json({ message: "❌ المنتج غير موجود" });
 
+    const transfersSnapshot = await get(ref(database, "warehouseTransfers"));
+    const transfersData = transfersSnapshot.exists()
+      ? transfersSnapshot.val()
+      : {};
+
+    const transfers = Object.values(transfersData)
+      .filter(
+        (t: any) =>
+          t.productId === foundProduct.id ||
+          t.productCode === foundProduct.code,
+      )
+      .map((t: any) => ({
+        ...t,
+        type: "transfer", // لتمييزها في الواجهة
+      }));
+
     // جلب المشتريات
     const purchasesSnapshot = await get(ref(database, "purchases"));
     const purchasesData = purchasesSnapshot.exists()
@@ -57,7 +73,8 @@ export const getProductById = async (req: Request, res: Response) => {
     const purchases = Object.values(purchasesData)
       .filter(
         (p: any) =>
-          p.code === foundProduct.code && p.warehouse === foundProduct.warehouse
+          p.code === foundProduct.code &&
+          p.warehouse === foundProduct.warehouse,
       )
       .map((p: any) => ({
         ...p,
@@ -77,14 +94,14 @@ export const getProductById = async (req: Request, res: Response) => {
         sell.products?.some(
           (prod: any) =>
             prod.code === foundProduct.code &&
-            prod.warehouse === foundProduct.warehouse
-        )
+            prod.warehouse === foundProduct.warehouse,
+        ),
       )
       .map((sell: any) => {
         const matchedProduct = sell.products.find(
           (prod: any) =>
             prod.code === foundProduct.code &&
-            prod.warehouse === foundProduct.warehouse
+            prod.warehouse === foundProduct.warehouse,
         );
         return {
           ...sell,
@@ -96,7 +113,7 @@ export const getProductById = async (req: Request, res: Response) => {
         };
       });
 
-    res.json({ product: foundProduct, purchases, sells });
+    res.json({ product: foundProduct, purchases, sells, transfers });
   } catch (error) {
     console.error("❌ خطأ في جلب المنتج:", error);
     res.status(500).json({ message: "حدث خطأ أثناء جلب المنتج" });
@@ -106,7 +123,6 @@ export const getProductById = async (req: Request, res: Response) => {
 export const create = async (req: Request, res: Response) => {
   try {
     const newProduct: Product = req.body;
-
 
     if (!newProduct.warehouse)
       return res.status(400).json({ message: "warehouse is required" });
@@ -138,28 +154,28 @@ export const create = async (req: Request, res: Response) => {
 export const updateQuantityOnSell = async (
   productId: string,
   warehouse: string,
-  soldQuantity: number
-): Promise<Product | null> => {  
+  soldQuantity: number,
+): Promise<Product | null> => {
   const productRef = ref(database, `products/${warehouse}/${productId}`);
-  console.log(soldQuantity)
+  console.log(soldQuantity);
   const snapshot = await get(productRef);
   if (!snapshot.exists()) return null;
 
   const existingProduct: Product = snapshot.val();
   if (existingProduct.quantity < soldQuantity) {
     console.log(
-      `❌ الكمية غير كافية. المتاح: ${existingProduct.quantity}, المطلوب: ${soldQuantity}`
+      `❌ الكمية غير كافية. المتاح: ${existingProduct.quantity}, المطلوب: ${soldQuantity}`,
     );
     throw new Error(
-      `❌ الكمية غير كافية. المتاح: ${existingProduct.quantity}, المطلوب: ${soldQuantity}`
+      `❌ الكمية غير كافية. المتاح: ${existingProduct.quantity}, المطلوب: ${soldQuantity}`,
     );
   }
-  console.log(existingProduct)
+  console.log(existingProduct);
 
   const newQuantity = existingProduct.quantity - soldQuantity;
   existingProduct.quantity = newQuantity;
   existingProduct.updatedDate = new Date().toLocaleString();
-  console.log(existingProduct)
+  console.log(existingProduct);
   await set(productRef, existingProduct);
 
   return existingProduct;
@@ -187,7 +203,7 @@ export const updateProduct = async (req: Request, res: Response) => {
 
           await set(
             ref(database, `products/${warehouse}/${productId}`),
-            newData
+            newData,
           );
 
           return res.json({ message: "تم تحديث المنتج", data: newData });
@@ -229,7 +245,7 @@ export const deleteProduct = async (req: Request, res: Response) => {
 };
 
 export const createOrUpdateProductInternal = async (
-  newProduct: Product
+  newProduct: Product,
 ): Promise<Product> => {
   const NowDate = new Date().toLocaleString();
 
@@ -259,7 +275,7 @@ export const createOrUpdateProductInternal = async (
         // حفظ التحديث
         await set(
           ref(database, `${warehousePath}/${productId}`),
-          updatedProduct
+          updatedProduct,
         );
         return updatedProduct;
       }
@@ -280,15 +296,13 @@ export const createOrUpdateProductInternal = async (
   return productToAdd;
 };
 
-
 // ✅ جلب منتج واحد حسب id + المشتريات والمبيعات
 export const getProductByIdInternal = async (id: string) => {
   try {
     if (!id) return { message: "product id is required" };
 
     const productsSnapshot = await get(ref(database, "products"));
-    if (!productsSnapshot.exists())
-      return { message: "المنتج غير موجود" };
+    if (!productsSnapshot.exists()) return { message: "المنتج غير موجود" };
 
     const warehouses = productsSnapshot.val();
     let foundProduct: any = null;
@@ -306,10 +320,7 @@ export const getProductByIdInternal = async (id: string) => {
       if (foundProduct) break;
     }
 
-    if (!foundProduct)
-      return { message: "❌ المنتج غير موجود" };
-
-    
+    if (!foundProduct) return { message: "❌ المنتج غير موجود" };
 
     return { product: foundProduct };
   } catch (error) {
@@ -318,19 +329,25 @@ export const getProductByIdInternal = async (id: string) => {
   }
 };
 
-export const getAllWarehouses = async (req: Request, res: Response) => {
+export const getByWarehouse = async (req: Request, res: Response) => {
   try {
+    const { warehouse } = req.body;
+    console.log(warehouse)
 
-    const productsSnapshot = await get(ref(database, "products"));
-    if (!productsSnapshot.exists()) return { message: "المنتج غير موجود" };
+    const productsSnapshot = await get(ref(database, `products/${warehouse}`));
 
-    const warehouses = productsSnapshot.val();
-    const warehouseName = Object.keys(warehouses)
+    if (!productsSnapshot.exists()) {
+      return res.json({ products: [] });
+    }
 
-    res.json({warehouses: warehouseName})
+    const data = productsSnapshot.val();
+    const products = Object.values(data);
 
+    res.json({ products });
   } catch (error) {
-    console.error("❌ خطأ في جلب المستودعات:", error);
-    res.json({ message: "حدث خطأ أثناء جلب المستودعات" });
+    console.error("❌ خطأ في جلب المنتجات:", error);
+    res
+      .status(500)
+      .json({ products: [], message: "حدث خطأ أثناء جلب المنتجات" });
   }
-}
+};

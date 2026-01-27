@@ -107,6 +107,17 @@ export const getSellById = async (req: Request, res: Response) => {
 export const updateSellById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    const updateData = req.body?.data;
+
+    // ✅ Validation أساسي
+    if (!id) {
+      return res.status(400).json({ message: "معرف الفاتورة غير صالح" });
+    }
+
+    if (!updateData || !Array.isArray(updateData.products)) {
+      return res.status(400).json({ message: "بيانات التحديث غير صالحة" });
+    }
+
     const sellRef = ref(database, `sells/${id}`);
     const snapshot = await get(sellRef);
 
@@ -115,76 +126,136 @@ export const updateSellById = async (req: Request, res: Response) => {
     }
 
     const sellData = snapshot.val();
-    const updateData = req.body.data;
+    const oldTotalPrice = Number(sellData.totalPrice || 0);
 
-    // 🧾 تعديل المنتجات (خصم الكمية الجديدة + استرجاع القديمة)
-    if (updateData.products) {
-      const productsSnap = await get(ref(database, "products"));
-      const products = productsSnap.exists() ? productsSnap.val() : {};
+    // =========================
+    // 🧾 تعديل المخزون
+    // =========================
 
-      // استرجاع الكميات القديمة
-      for (const oldP of sellData.products) {
-        const warehouse = oldP.warehouse;
-        const code = oldP.code;
-        if (products[warehouse] && products[warehouse][code]) {
-          products[warehouse][code].quantity += parseFloat(oldP.qty);
-        }
+    // 1️⃣ استرجاع الكميات القديمة
+    for (const oldP of sellData.products || []) {
+      if (!oldP?.warehouse || !oldP?.code || !oldP?.qty) continue;
+
+      const qtyPath = `products/${oldP.warehouse}/${oldP.id}/quantity`;
+      const qtyRef = ref(database, qtyPath);
+      const qtySnap = await get(qtyRef);
+
+      if (!qtySnap.exists()) {
+        return res.status(400).json({
+          message: `المنتج غير موجود في المخزون: ${oldP.code}`,
+        });
       }
 
-      // خصم الكميات الجديدة
-      for (const newP of updateData.products) {
-        const warehouse = newP.warehouse;
-        const code = newP.code;
-        if (products[warehouse] && products[warehouse][code]) {
-          products[warehouse][code].quantity -= parseFloat(newP.qty);
-        }
-      }
+      const currentQty = Number(qtySnap.val());
+      const restoredQty = currentQty + Number(oldP.qty);
 
-      // تحديث المخزون
-      await update(ref(database, "products"), products);
-      sellData.products = updateData.products;
+      await set(qtyRef, restoredQty);
     }
 
-    // 🔢 حساب المجموع الجديد
+    // 2️⃣ خصم الكميات الجديدة
+    for (const newP of updateData.products) {
+      if (!newP?.warehouse || !newP?.code || !newP?.qty) {
+        return res.status(400).json({
+          message: "بيانات منتج غير صالحة",
+        });
+      }
+
+      const qtyPath = `products/${newP.warehouse}/${newP.id}/quantity`;
+      const qtyRef = ref(database, qtyPath);
+      const qtySnap = await get(qtyRef);
+        
+      if (!qtySnap.exists()) {
+        return res.status(400).json({
+          message: `المنتج غير موجود في المخزون: ${newP.code}`,
+        });
+      }
+
+      const currentQty = Number(qtySnap.val());
+      const newQty = currentQty - Number(newP.qty);
+
+      if (newQty < 0) {
+        return res.status(400).json({
+          message: `❌ الكمية غير كافية للمنتج ${newP.code}`,
+        });
+      }
+
+      await set(qtyRef, newQty);
+    }
+
+    // =========================
+    // 🔢 تحديث الفاتورة
+    // =========================
+
+    sellData.products = updateData.products;
+
     const newTotalPrice = sellData.products.reduce(
-      (sum: number, p: any) => sum + Number(p.sellPrice) * Number(p.qty),
+      (sum: number, p: any) =>
+        sum + Number(p.sellPrice || 0) * Number(p.qty || 0),
       0
     );
-    sellData.totalPrice = newTotalPrice;
 
-    // 💰 تحديث الرصيد والدفعات
+    sellData.totalPrice = newTotalPrice;
+    sellData.updatedAt = new Date().toISOString();
+
+    // =========================
+    // 💰 تحديث رصيد العميل
+    // =========================
+
     const customerRef = ref(database, `customer/${sellData.customerId}`);
     const customerSnap = await get(customerRef);
-    if (customerSnap.exists()) {
-      const customer = customerSnap.val();
-      customer.balance =
-        (customer.balance || 0) - sellData.totalPrice + newTotalPrice;
-      await update(customerRef, customer);
+
+    if (!customerSnap.exists()) {
+      return res.status(400).json({
+        message: "العميل غير موجود",
+      });
     }
 
-    // 🧾 تسجيل عملية التعديل كدفعة
+    const customer = customerSnap.val();
+    const currentBalance = Number(customer.balance || 0);
+    console.log(currentBalance, oldTotalPrice, newTotalPrice);
+    const newBalance = currentBalance + (oldTotalPrice - newTotalPrice);
+
+    await update(customerRef, {
+      balance: newBalance,
+    });
+
+    // =========================
+    // 🧾 تسجيل حركة مالية
+    // =========================
+
     const paymentId = uuidv4();
+
     const payment: Payment = {
+      id: paymentId,
       type: "sell_edit",
       customerId: sellData.customerId,
       currency: sellData.currency || "",
       exchangeRate: 1,
       amount_base: newTotalPrice,
       amount: newTotalPrice,
-      note: `تعديل على فاتورة بيع - ${sellData.id}`,
-      id: paymentId,
-      date: new Date().toLocaleString(),
+      note: `تعديل على فاتورة بيع - ${id}`,
+      date: new Date().toISOString(),
     };
 
     await set(ref(database, `payment/${paymentId}`), payment);
 
-    // حفظ التعديلات على الفاتورة
+    // =========================
+    // 💾 حفظ الفاتورة
+    // =========================
+
     await update(sellRef, sellData);
 
-    res.json(sellData);
-  } catch (error) {
+    return res.json({
+      message: "✅ تم تحديث الفاتورة بنجاح",
+      sell: sellData,
+    });
+  } catch (error: any) {
     console.error("❌ خطأ أثناء تحديث فاتورة البيع:", error);
-    res.status(500).json({ message: "حدث خطأ أثناء تحديث الفاتورة" });
+
+    return res.status(500).json({
+      message: "حدث خطأ أثناء تحديث الفاتورة",
+      error: error?.message,
+    });
   }
 };
 
@@ -282,4 +353,52 @@ export const returnProductsFromSellInternal = async (
   await update(sellRef, sellData);
 
   return { updatedSell: sellData, totalRefund };
+};
+
+
+// جلب المبيعات حسب المستودع والتاريخ
+export const getSalesByWarehouseAndDate = async (
+  req: Request,
+  res: Response,
+) => {
+  try {
+    let { warehouse, date } = req.body;
+    if (!warehouse) {
+      return res.status(400).json({ message: "warehouse مطلوب" });
+    }
+    if (!date) {
+      date = new Date().toLocaleDateString("en-CA", {
+        timeZone: "Asia/Damascus",
+      });
+    }
+
+    const snapshot = await get(ref(database, "sells"));
+
+    if (!snapshot.exists()) {
+      return res.json({ sales: [] });
+    }
+
+    const salesArray = Object.values(snapshot.val());
+
+    const filteredSales = salesArray.filter((sale: any) => {
+      if (!sale.date || !sale.products) return false;
+
+      const saleDate = new Date(sale.date).toLocaleDateString("en-CA", {
+        timeZone: "Asia/Damascus",
+      });
+
+      const sameDate = saleDate === date;
+
+      const hasWarehouseProduct = sale.products.some(
+        (product: any) => product.warehouse === warehouse,
+      );
+
+      return sameDate && hasWarehouseProduct;
+    });
+
+    res.json({ sales: filteredSales });
+  } catch (error) {
+    console.error("❌ خطأ في جلب المبيعات:", error);
+    res.status(500).json({ sales: [], message: "خطأ في السيرفر" });
+  }
 };

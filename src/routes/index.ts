@@ -7,6 +7,7 @@ import transactionsRouter from "./transactions.routes";
 import paymentsRouter from "./payments.routes";
 import customersRouter from "./customer.routes";
 import sellsRouter from "./sells.routes";
+import warehousesRouter from "./warehouse.routes";
 
 
 const router = Router();
@@ -20,5 +21,6 @@ router.use("/transactions", transactionsRouter);
 router.use("/payments", paymentsRouter);
 router.use("/customers", customersRouter);
 router.use("/sells", sellsRouter);
+router.use("/warehouses", warehousesRouter);
 
 export default router;

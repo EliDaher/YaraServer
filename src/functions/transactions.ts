@@ -2,34 +2,35 @@ import { update } from "firebase/database";
 import {
   updateCustomerBalanceInternal,
   updateCustomerInternal,
-} from "../controllers/customer";
-import { createPaymentInternal } from "../controllers/payments";
+} from "../controllers/customer.controller";
+import { createPaymentInternal } from "../controllers/payments.controller";
 import {
   createOrUpdateProductInternal,
   getProductById,
   getProductByIdInternal,
   updateQuantityOnSell,
-} from "../controllers/products";
+} from "../controllers/products.controller";
 import {
   createPurchaseInternal,
   getPurchaseByIdInternal,
   updatePurchaseInternal,
-} from "../controllers/purchases";
-import { createReturnInternal, ReturnData } from "../controllers/returns";
+} from "../controllers/purchases.controller";
+import { createReturnInternal, ReturnData } from "../controllers/returns.controller";
 import {
   createSellInternal,
   getSellById,
   returnProductsFromSellInternal,
   updateSellById,
-} from "../controllers/sells";
+} from "../controllers/sells.controller";
 import {
   updateSupplierBalanceInternal,
   updateSupplierInternal,
-} from "../controllers/suppliers";
+} from "../controllers/suppliers.controller";
 import { Payment } from "../types/payment";
 import { Product } from "../types/product";
 import { purchase } from "../types/purchase";
 import { sell } from "../types/sell";
+import { createTransferInternal } from "../controllers/transfer.controller";
 
 // ✅ عند تنفيذ عملية شراء
 export const handlePurchase = async ({
@@ -299,6 +300,37 @@ export const warehouseTransfer = async (transferData: {
     if (product?.message) {
       return product?.message;
     }
+
+    const currentStock = Number(product.product.quantity || 0);
+    const stockAfter = currentStock - transferData.quantity;
+
+    if (stockAfter < 0) {
+      throw new Error("❌ الكمية غير كافية في المستودع");
+    }
+
+
+    await createTransferInternal({
+      productId: transferData.productId,
+      code: product.product.code,
+      name: product.product.name,
+
+      oldWarehouse: transferData.oldWarehouse,
+      newWarehouse: transferData.newWarehouse,
+
+      quantity: transferData.quantity,
+      amount: transferData.amount,
+      currency: transferData.currency,
+
+      stockBefore: currentStock,
+      stockAfter: stockAfter,
+
+      performedBy: "admin", // لاحقًا اربطها بالجلسة
+      referenceId: `TR-${Date.now()}`,
+
+      note: transferData.note,
+    });
+
+
 
     //انقاص الكمية من المخزون القديم
     await updateQuantityOnSell(

@@ -1,6 +1,6 @@
 
 import express from 'express';
-import { getAll, create, getProductById, updateProduct, deleteProduct, getAllWarehouses } from '../controllers/products';
+import { getAll, create, getProductById, updateProduct, deleteProduct, getByWarehouse } from '../controllers/products.controller';
 const router = express.Router();
 
 router.get('/', getAll);
@@ -11,6 +11,6 @@ router.delete("/:id", deleteProduct);
 
 router.post("/byId", getProductById);
 
-router.get('/warehouses', getAllWarehouses)
+router.post('/getByWarehouse', getByWarehouse)
 
 export default router;

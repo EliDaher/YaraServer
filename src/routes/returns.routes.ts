@@ -1,6 +1,6 @@
 
 import express from 'express';
-import { getAllReturns, createReturn, getReturnById } from '../controllers/returns';
+import { getAllReturns, createReturn, getReturnById } from '../controllers/returns.controller';
 const router = express.Router();
 
 router.get('/', getAllReturns);

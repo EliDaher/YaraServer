@@ -1,7 +1,7 @@
 
 
 import express from 'express';
-import { getAll, create, getCustomerById } from '../controllers/customer';
+import { getAll, create, getCustomerById } from '../controllers/customer.controller';
 const router = express.Router();
 
 router.get('/', getAll);

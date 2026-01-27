@@ -1,6 +1,6 @@
 
 import express from 'express';
-import { getAll, create, getSupplierById } from '../controllers/suppliers';
+import { getAll, create, getSupplierById } from '../controllers/suppliers.controller';
 const router = express.Router();
 
 router.get('/', getAll);
