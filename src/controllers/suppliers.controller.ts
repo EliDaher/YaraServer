@@ -5,6 +5,7 @@ import { purchase } from "../types/purchase";
 import { Payment } from "../types/payment";
 import { ref, get, set, update, remove } from "firebase/database";
 import { database } from "../firebaseConfig";
+import { Customer } from "../types/customer";
 
 // ✅ جلب جميع الموردين
 export const getAll = async (_req: Request, res: Response) => {
@@ -54,6 +55,29 @@ export const createSupplierInternal = async (
   };
   await set(ref(database, `supplier/${id}`), supplier);
   return supplier;
+};
+
+export const updateSupplierInfo = async (
+  req: Request,
+  res: Response
+): Promise<Supplier | null> => {
+  const { id } = req.params;
+  const updates = req.body;
+
+  const dbRef = ref(database, `supplier/${id}`);
+  const snapshot = await get(dbRef);
+  if (!snapshot.exists()) {
+    res.status(404).json({ error: "Supplier not found" });
+    return null;
+  }
+
+  const supplier = snapshot.val() as Supplier;
+  const now = new Date().toLocaleString();
+
+  let updatedSupplier: Supplier = { ...supplier, updatedDate: now, name: updates.name, number: updates.number };
+  await update(dbRef, updatedSupplier);
+  res.json({ message: "✅ تم تحديث بيانات المورد", data: updatedSupplier });
+  return updatedSupplier;
 };
 
 // تحديث مورد داخلي (مع شراء أو دفعة)
