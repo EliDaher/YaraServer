@@ -64,6 +64,30 @@ export const createCustomerInternal = async (
   return customer;
 };
 
+export const updateCustomerInfo = async (
+  // id: string,
+  // updates: Partial<Omit<Customer, "id" | "createdDate">>
+  req: Request,
+  res: Response
+): Promise<Customer | null> => {
+  const { id } = req.params;
+  const updates = req.body;
+
+  const dbRef = ref(database, `customer/${id}`);
+  const snapshot = await get(dbRef);
+  if (!snapshot.exists()) {
+    res.status(404).json({ error: "Customer not found" });
+    return null;
+  }
+
+  const customer = snapshot.val() as Customer;
+  const now = new Date().toLocaleString();
+
+  let updatedCustomer: Customer = { ...customer, updatedDate: now, name: updates.name, number: updates.number };
+  await update(dbRef, updatedCustomer);
+  res.json({ message: "✅ تم تحديث بيانات العميل", data: updatedCustomer });
+  return updatedCustomer;
+};
 /* =========================================================
    ✅ 4. تحديث بيانات العميل داخليًا
    ========================================================= */

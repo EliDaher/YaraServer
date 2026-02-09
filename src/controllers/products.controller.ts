@@ -4,16 +4,39 @@ import { ref, get, set, push, remove } from "firebase/database";
 import { database } from "../firebaseConfig";
 
 // ✅ جلب جميع المنتجات
+let productsCache: any = null;
+let lastFetch = 0;
+
 export const getAll = async (_req: Request, res: Response) => {
   try {
+    // cache لمدة 60 ثانية
+    if (productsCache && Date.now() - lastFetch < 60_000) {
+      return res.json(productsCache);
+    }
+
     const snapshot = await get(ref(database, "products"));
-    const products = snapshot.exists() ? Object.values(snapshot.val()) : [];
+
+    const products = snapshot.exists()
+      ? Object.entries(snapshot.val()).flatMap(([categoryName, items]: any) =>
+          Object.entries(items).map(([id, product]: any) => ({
+            id,
+            category: categoryName,
+            ...product,
+          })),
+        )
+      : [];
+
+    // تحديث الكاش
+    productsCache = products;
+    lastFetch = Date.now();
+
     res.json(products);
   } catch (error) {
     console.error("❌ خطأ في جلب المنتجات:", error);
     res.status(500).json({ message: "حدث خطأ أثناء جلب المنتجات" });
   }
 };
+
 
 // ✅ جلب منتج واحد حسب id + المشتريات والمبيعات
 export const getProductById = async (req: Request, res: Response) => {
