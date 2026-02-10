@@ -142,6 +142,7 @@ export const customerPayment = async (paymentData: Payment) => {
 
   return data;
 };
+
 export const supplierPayment = async (paymentData: Payment) => {
   // 1- تسجيل عملية الدفع
   const data = await createPaymentInternal(paymentData);

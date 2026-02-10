@@ -86,7 +86,12 @@ export const updateSupplierInternal = async (
   sellUpdates?: purchase,
   paymentUpdates?: Payment
 ): Promise<Supplier | null> => {
-  const supplierRef = ref(database, `supplier/${id}`);
+
+  console.log(id, sellUpdates, paymentUpdates);
+
+  const supplierId = typeof id === "string" ? id : (id as any).id;
+  if (!supplierId) throw new Error("Invalid supplier id");
+  const supplierRef = ref(database, `supplier/${supplierId}`);
   const snapshot = await get(supplierRef);
   if (!snapshot.exists()) return null;
 
