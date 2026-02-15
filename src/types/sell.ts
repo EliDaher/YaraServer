@@ -22,4 +22,5 @@ export interface sell {
   }[];
   date?: string; // تاريخ العملية
   partValue?: number;
+  discount?: number;
 }

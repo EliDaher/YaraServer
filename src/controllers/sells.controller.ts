@@ -402,3 +402,29 @@ export const getSalesByWarehouseAndDate = async (
     res.status(500).json({ sales: [], message: "خطأ في السيرفر" });
   }
 };
+
+export const addAfterSellDiscountInternal = async ({sellId, discount}: {sellId: string, discount: number}) => {
+  try {
+    if (!sellId || discount == null) {
+      return { message: "sellId و discount مطلوبان" };
+    }
+    
+    const sellRef = ref(database, `sells/${sellId}`);
+    const sellSnap = await get(sellRef);
+    if (!sellSnap.exists()) {
+      return { message: "فاتورة البيع غير موجودة" };
+    }
+
+    const sellData: sell = sellSnap.val();
+    sellData.discount = discount;
+    sellData.totalPrice = (sellData.totalPrice || 0) - discount;
+
+    await update(sellRef, sellData);
+
+    return { message: "✅ تم إضافة الخصم بعد البيع", data: sellData };
+  } catch (error) {
+    console.error("❌ خطأ في إضافة الخصم بعد البيع:", error);
+    return { message: "حدث خطأ أثناء إضافة الخصم" };
+  }
+
+}

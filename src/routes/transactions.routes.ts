@@ -1,5 +1,7 @@
 import express, { Request, Response } from "express";
 import { customerPayment, handleCustomerReturn, handlePurchase, handleSell, handleSupplierReturn, supplierPayment, warehouseTransfer } from "../functions/transactions";
+import { addAfterSellDiscountInternal } from "../controllers/sells.controller";
+import { updateCustomerBalanceInternal } from "../controllers/customer.controller";
 
 const router = express.Router();
 
@@ -89,6 +91,27 @@ router.post("/warehouseTransfer", (req: Request, res: Response) => {
     }
     const result = warehouseTransfer(transferData);
     res.json({ message: "✅ تمت عملية النقل بين المستودعات", data: result });
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+});
+
+router.post("/afterSellDiscount", async (req: Request, res: Response) => {
+  try {
+    const { discount, sellId, customerId } = req.body;
+
+    if (!discount || !sellId || !customerId) {
+      throw new Error("❌ بيانات الخصم أو معرف الفاتورة أو معرف العميل غير مكتملة");
+    }
+
+    await addAfterSellDiscountInternal({sellId, discount});
+
+    await updateCustomerBalanceInternal(
+      customerId,
+      discount
+    )
+
+    res.json({ message: "✅ تمت عملية الخصم بعد البيع" });
   } catch (error: any) {
     res.status(400).json({ message: error.message });
   }
