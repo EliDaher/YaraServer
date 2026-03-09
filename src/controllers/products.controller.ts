@@ -3,14 +3,17 @@ import { Product } from "../types/product";
 import { ref, get, set, push, remove } from "firebase/database";
 import { database } from "../firebaseConfig";
 
-// ✅ جلب جميع المنتجات
 let productsCache: any = null;
 let lastFetch = 0;
+let compareTime = 120_000
+
+const fetchReset = () => {
+  lastFetch = Date.now() - compareTime;
+}
 
 export const getAll = async (_req: Request, res: Response) => {
   try {
-    // cache لمدة 60 ثانية
-    if (productsCache && Date.now() - lastFetch < 60_000) {
+    if (productsCache && Date.now() - lastFetch < compareTime) {
       return res.json(productsCache);
     }
 
@@ -163,6 +166,8 @@ export const create = async (req: Request, res: Response) => {
 
     await set(newRef, productData);
 
+    fetchReset();
+
     res.json({
       message: "تم إنشاء المنتج بنجاح",
       data: productData,
@@ -195,6 +200,8 @@ export const updateQuantityOnSell = async (
   }
   console.log(existingProduct);
 
+  fetchReset();
+
   const newQuantity = existingProduct.quantity - soldQuantity;
   existingProduct.quantity = newQuantity;
   existingProduct.updatedDate = new Date().toLocaleString();
@@ -214,6 +221,8 @@ export const updateProduct = async (req: Request, res: Response) => {
       return res.status(404).json({ message: "المنتج غير موجود" });
 
     const warehouses = snapshot.val();
+
+    fetchReset();
 
     for (const warehouse in warehouses) {
       for (const productId in warehouses[warehouse]) {
@@ -259,6 +268,8 @@ export const deleteProduct = async (req: Request, res: Response) => {
         }
       }
     }
+
+    fetchReset();
 
     res.status(404).json({ message: "المنتج غير موجود" });
   } catch (error) {
@@ -315,6 +326,8 @@ export const createOrUpdateProductInternal = async (
   };
 
   await set(newRef, productToAdd);
+
+  fetchReset();
 
   return productToAdd;
 };
