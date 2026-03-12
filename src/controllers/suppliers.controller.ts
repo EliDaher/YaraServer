@@ -101,7 +101,8 @@ export const updateSupplierInternal = async (
   if (sellUpdates) {
     const updatedSupplier: Supplier = {
       ...supplier,
-      balance: (supplier.balance || 0) + (sellUpdates.remainingDebt || 0),
+      balance:
+        Number(supplier.balance || 0) + Number(sellUpdates.remainingDebt || 0),
       purchases: [...(supplier.purchases || []), sellUpdates.id || ""],
       updatedDate: now,
     };
@@ -112,7 +113,8 @@ export const updateSupplierInternal = async (
   if (paymentUpdates) {
     const updatedSupplier: Supplier = {
       ...supplier,
-      balance: (supplier.balance || 0) + (paymentUpdates.amount || 0),
+      balance:
+        Number(supplier.balance || 0) + Number(paymentUpdates.amount || 0),
       updatedDate: now,
     };
     await set(supplierRef, updatedSupplier);
@@ -134,7 +136,7 @@ export const updateSupplierBalanceInternal = async (
   const supplier = snapshot.val() as Supplier;
   const updatedSupplier: Supplier = {
     ...supplier,
-    balance: (supplier.balance || 0) + amountChange,
+    balance: Number(supplier.balance || 0) + Number(amountChange),
     updatedDate: new Date().toLocaleString(),
   };
 
@@ -192,7 +194,7 @@ export const getSupplierById = async (req: Request, res: Response) => {
     const paymentsData = paymentSnapshot.exists()
       ? Object.values(paymentSnapshot.val())
       : [];
-    const payments = paymentsData.filter((p: any) => p.supplierId === id);
+    const payments = paymentsData.filter((p: any) => p.supplierId === id || p?.supplierId?.id === id );
 
     res.json({ data: { ...supplier, purchases, payments } });
   } catch (error) {
