@@ -1,4 +1,4 @@
-import { update } from "firebase/database";
+import { get, ref } from "firebase/database";
 import {
   updateCustomerBalanceInternal,
   updateCustomerInternal,
@@ -31,6 +31,7 @@ import { Product } from "../types/product";
 import { purchase } from "../types/purchase";
 import { sell } from "../types/sell";
 import { createTransferInternal } from "../controllers/transfer.controller";
+import { database } from "../firebaseConfig";
 
 // ✅ عند تنفيذ عملية شراء
 export const handlePurchase = async ({
@@ -233,66 +234,226 @@ export const handleSupplierReturn = async (newReturn: {
   }
 };
 
-export const handleCustomerReturn = async (newReturn: {
+type CustomerReturnType = "debt" | "cash" | "part";
+
+type CustomerReturnItem = {
   productCode: string;
-  customerId: string;
+  productId: string;
   warehouse: string;
   qty: number;
   returnValue: number;
-  referenceId: string;
-  productId: string;
-  returnType: "debt" | "cash" | "part";
-  partValue: number;
-  reason: string;
-}) => {
-  //1- انشاء سجل اعادة
-  await createReturnInternal({ ...newReturn, qty: -newReturn.qty, type: "sale-return" });
-
-  //2- انشاء سجل مالي
-  await createPaymentInternal({
-    type: "return",
-    customerId: newReturn.customerId,
-    amount: -(newReturn.returnType == "cash"
-      ? newReturn.returnValue
-      : newReturn.returnType == "part"
-      ? newReturn.partValue
-      : 0),
-    note: `اعادة منتجات من الزبون (${newReturn.productCode} عدد ${newReturn.qty})`,
-    currency: "USD",
-    exchangeRate: 0,
-    amount_base: 0,
-  });
-
-  //3- تحديث رصيد الزبون
-  newReturn.returnType == "debt"
-    ? await updateCustomerBalanceInternal(
-        newReturn.customerId,
-        newReturn.returnValue
-      )
-    : (await newReturn.returnType) == "part"
-    ? updateCustomerBalanceInternal(
-        newReturn.customerId,
-        newReturn.returnValue - newReturn.partValue
-      )
-    : await updateCustomerBalanceInternal(newReturn.customerId, 0);
-
-  //4- تعديل الكمية في الفاتورة
-  await returnProductsFromSellInternal(newReturn.referenceId, [
-    {
-      code: newReturn.productCode,
-      warehouse: newReturn.warehouse,
-      qty: -newReturn.qty,
-    },
-  ]);
-
-  // //5- تعديل الكمية في المخزون
-  // await updateQuantityOnSell(
-  //   newReturn.productId,
-  //   newReturn.warehouse,
-  //   newReturn.qty
-  // );
 };
 
+type CustomerReturnPayload = {
+  customerId: string;
+  referenceId: string;
+  returnType: CustomerReturnType;
+  partValue: number;
+  reason: string;
+  items?: CustomerReturnItem[];
+  // Legacy single-item shape (kept for backward compatibility)
+  productCode?: string;
+  productId?: string;
+  warehouse?: string;
+  qty?: number;
+  returnValue?: number;
+};
+
+const normalizeCustomerReturnItems = (
+  newReturn: CustomerReturnPayload
+): CustomerReturnItem[] => {
+  const rawItems =
+    Array.isArray(newReturn.items) && newReturn.items.length
+      ? newReturn.items
+      : newReturn.productCode &&
+          newReturn.productId &&
+          newReturn.warehouse &&
+          newReturn.qty
+        ? [
+            {
+              productCode: newReturn.productCode,
+              productId: newReturn.productId,
+              warehouse: newReturn.warehouse,
+              qty: newReturn.qty,
+              returnValue: Number(newReturn.returnValue || 0),
+            },
+          ]
+        : [];
+
+  if (!rawItems.length) {
+    throw new Error("No return items were provided");
+  }
+
+  return rawItems.map((item, idx) => {
+    const qty = Math.abs(Number(item.qty || 0));
+    const returnValue = Number(item.returnValue || 0);
+
+    if (!item.productCode || !item.productId || !item.warehouse) {
+      throw new Error(`Invalid return item at index ${idx}`);
+    }
+    if (!Number.isFinite(qty) || qty <= 0) {
+      throw new Error(`Invalid qty for return item at index ${idx}`);
+    }
+    if (!Number.isFinite(returnValue) || returnValue < 0) {
+      throw new Error(`Invalid return value for item at index ${idx}`);
+    }
+
+    return {
+      productCode: item.productCode,
+      productId: item.productId,
+      warehouse: item.warehouse,
+      qty,
+      returnValue,
+    };
+  });
+};
+
+export const handleCustomerReturn = async (newReturn: CustomerReturnPayload) => {
+  if (!newReturn.customerId || !newReturn.referenceId || !newReturn.returnType) {
+    throw new Error("customerId, referenceId, and returnType are required");
+  }
+
+  const items = normalizeCustomerReturnItems(newReturn);
+  const totalReturnValue = items.reduce(
+    (sum, item) => sum + Number(item.returnValue || 0),
+    0
+  );
+  const partValue = Number(newReturn.partValue || 0);
+
+  if (newReturn.returnType === "part") {
+    if (partValue <= 0) {
+      throw new Error("partValue must be greater than 0 for partial return");
+    }
+    if (partValue > totalReturnValue) {
+      throw new Error("partValue cannot exceed total return value");
+    }
+  }
+
+  // 1) Pre-validate everything first (all-or-none at validation stage)
+  const sellRef = ref(database, `sells/${newReturn.referenceId}`);
+  const sellSnap = await get(sellRef);
+  if (!sellSnap.exists()) {
+    throw new Error("Sale invoice not found");
+  }
+
+  const sellData = sellSnap.val() as sell;
+  if (sellData.customerId !== newReturn.customerId) {
+    throw new Error("Return customer does not match invoice customer");
+  }
+
+  const requestedBySellLine = new Map<
+    string,
+    { code: string; warehouse: string; qty: number }
+  >();
+
+  for (const item of items) {
+    const key = `${item.productCode}::${item.warehouse}`;
+    const current = requestedBySellLine.get(key);
+    if (current) {
+      current.qty += item.qty;
+    } else {
+      requestedBySellLine.set(key, {
+        code: item.productCode,
+        warehouse: item.warehouse,
+        qty: item.qty,
+      });
+    }
+  }
+
+  for (const requestLine of requestedBySellLine.values()) {
+    const soldLine = sellData.products.find(
+      (p) =>
+        p.code === requestLine.code && p.warehouse === requestLine.warehouse
+    );
+    if (!soldLine) {
+      throw new Error(
+        `Item ${requestLine.code} not found in invoice ${newReturn.referenceId}`
+      );
+    }
+    if (requestLine.qty > Number(soldLine.qty || 0)) {
+      throw new Error(
+        `Return qty for ${requestLine.code} exceeds sold qty (${soldLine.qty})`
+      );
+    }
+  }
+
+  for (const item of items) {
+    const productSnap = await get(
+      ref(database, `products/${item.warehouse}/${item.productId}`)
+    );
+    if (!productSnap.exists()) {
+      throw new Error(
+        `Product ${item.productCode} not found in warehouse ${item.warehouse}`
+      );
+    }
+  }
+
+  // 2) Apply stock + return records for each item
+  for (const item of items) {
+    await createReturnInternal({
+      productCode: item.productCode,
+      productId: item.productId,
+      warehouse: item.warehouse,
+      qty: item.qty,
+      type: "sale-return",
+      referenceId: newReturn.referenceId,
+      reason: newReturn.reason || "",
+    });
+  }
+
+  // 3) Update invoice one time for all returned items
+  const updatedSell = await returnProductsFromSellInternal(
+    newReturn.referenceId,
+    Array.from(requestedBySellLine.values()).map((line) => ({
+      code: line.code,
+      warehouse: line.warehouse,
+      qty: line.qty,
+    }))
+  );
+
+  if (!updatedSell) {
+    throw new Error("Failed to update sale invoice after return");
+  }
+
+  // 4) Financial record once per return operation
+  if (newReturn.returnType === "cash" || newReturn.returnType === "part") {
+    const paymentAmount =
+      newReturn.returnType === "cash" ? -totalReturnValue : -partValue;
+
+    await createPaymentInternal({
+      type: "return",
+      customerId: newReturn.customerId,
+      amount: paymentAmount,
+      note: `Customer return (${items.length} item(s))`,
+      currency: "USD",
+      exchangeRate: 0,
+      amount_base: 0,
+    });
+  }
+
+  // 5) Customer balance change once per operation
+  let balanceChange = 0;
+  if (newReturn.returnType === "debt") {
+    balanceChange = totalReturnValue;
+  } else if (newReturn.returnType === "part") {
+    balanceChange = totalReturnValue - partValue;
+  }
+
+  if (balanceChange !== 0) {
+    await updateCustomerBalanceInternal(newReturn.customerId, balanceChange);
+  }
+
+  return {
+    success: true,
+    message: "Customer return completed successfully",
+    data: {
+      referenceId: newReturn.referenceId,
+      itemsCount: items.length,
+      totalReturnValue,
+      partValue: newReturn.returnType === "part" ? partValue : 0,
+    },
+  };
+};
 
 export const warehouseTransfer = async (transferData: {
   productId: string;
