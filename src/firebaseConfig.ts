@@ -14,14 +14,14 @@ const firebaseConfig = {
   messagingSenderId: process.env.FIREBASE_messagingSenderId,
   appId: process.env.FIREBASE_appId,
   measurementId: process.env.FIREBASE_measurementId,
-  // apiKey: "AIzaSyDwZmm9YFxUsXaNGadxNWyDa3sN7DCDnNs",
-  // authDomain: "fitnesstime-4096f.firebaseapp.com",
-  // databaseURL: "https://fitnesstime-4096f-default-rtdb.firebaseio.com",
-  // projectId: "fitnesstime-4096f",
-  // storageBucket: "fitnesstime-4096f.firebasestorage.app",
-  // messagingSenderId: "577921419371",
-  // appId: "1:577921419371:web:6b1bced7ebc17a07b5092e",
-  // measurementId: "G-MB1NYNBY2M",
+  // apiKey: "AIzaSyAkyaaWvnUK77-RGMeB0t4PEA_7uE4sTzU",
+  // authDomain: "aboomar-ab9ae.firebaseapp.com",
+  // databaseURL: "https://aboomar-ab9ae-default-rtdb.firebaseio.com",
+  // projectId: "aboomar-ab9ae",
+  // storageBucket: "aboomar-ab9ae.firebasestorage.app",
+  // messagingSenderId: "49589156271",
+  // appId: "1:49589156271:web:a74eac5dd593c44c7f575a",
+  // measurementId: "G-571039T3K6",
 };
 
 const app = initializeApp(firebaseConfig);

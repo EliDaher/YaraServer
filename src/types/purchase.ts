@@ -7,6 +7,7 @@ export interface purchase {
     warehouse: string,
     quantity: number,
     payPrice: number,
+    transferCost?: number,
     totalPrice: number,
     currency: string,
     exchangeRate: number,

@@ -104,6 +104,7 @@ export const getProductById = async (req: Request, res: Response) => {
       )
       .map((p: any) => ({
         ...p,
+        transferCost: Number(p.transferCost || 0),
         supplierName: supplierData[p.supplierId]?.name || "مورد غير معروف",
       }));
 
@@ -387,3 +388,4 @@ export const getByWarehouse = async (req: Request, res: Response) => {
       .json({ products: [], message: "حدث خطأ أثناء جلب المنتجات" });
   }
 };
+

@@ -185,9 +185,13 @@ export const getSupplierById = async (req: Request, res: Response) => {
       ? purchasesSnapshot.val()
       : {};
     const purchases =
-      supplier.purchases?.map(
-        (purchaseId: string) => purchasesData[purchaseId]
-      ) || [];
+      supplier.purchases
+        ?.map((purchaseId: string) => purchasesData[purchaseId])
+        .filter(Boolean)
+        .map((purchase: any) => ({
+          ...purchase,
+          transferCost: Number(purchase.transferCost || 0),
+        })) || [];
 
     // جلب المدفوعات
     const paymentSnapshot = await get(ref(database, "payment"));

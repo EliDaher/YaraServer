@@ -35,6 +35,7 @@ export const createPurchase = async (req: Request, res: Response) => {
       currency,
       exchangeRate,
       amount_base,
+      transferCost,
     } = req.body;
 
     const id = uuidv4();
@@ -55,6 +56,7 @@ export const createPurchase = async (req: Request, res: Response) => {
       currency,
       exchangeRate,
       amount_base,
+      transferCost: Number(transferCost || 0),
     };
 
     // ✅ حفظ عملية الشراء في قاعدة البيانات
@@ -83,6 +85,7 @@ export const createPurchaseInternal = async (
 
   const purchaseData: purchase = {
     ...newPurchase,
+    transferCost: Number(newPurchase.transferCost || 0),
     id,
     date: NowDate,
   };

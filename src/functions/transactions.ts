@@ -41,6 +41,7 @@ export const handlePurchase = async ({
   newProduct: Product;
 }) => {
   // 1- تسجيل عملية الشراء
+  const transferCost = Number(newPurchase.transferCost || 0);
   const purchaseData = await createPurchaseInternal(newPurchase);
 
   // 2- تحديث مخزون المنتجات
@@ -78,6 +79,18 @@ export const handlePurchase = async ({
       amount_base: -(newPurchase.exchangeRate * purchaseData.totalPrice),
     });
   } else if (purchaseData.remainingDebt == purchaseData.totalPrice) {
+  }
+
+  if (transferCost > 0) {
+    await createPaymentInternal({
+      type: "expense",
+      supplierId: purchaseData.supplierId,
+      amount: -transferCost,
+      note: `${newProduct.name} transfer/shipping cost`,
+      currency: newPurchase.currency,
+      exchangeRate: newPurchase.exchangeRate,
+      amount_base: -(newPurchase.exchangeRate * transferCost),
+    });
   }
 
   return purchaseData;
