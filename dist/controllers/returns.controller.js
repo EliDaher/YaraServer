@@ -67,7 +67,7 @@ const getReturnById = (req, res) => __awaiter(void 0, void 0, void 0, function* 
 exports.getReturnById = getReturnById;
 // ✅ create return (customer return or purchase return)
 const createReturn = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    const { productCode, warehouse, qty, type, referenceId, reason } = req.body;
+    const { productCode, warehouse, qty, type, referenceId, reason, executer } = req.body;
     if (!productCode || !warehouse || !qty || !type) {
         return res
             .status(400)
@@ -99,6 +99,7 @@ const createReturn = (req, res) => __awaiter(void 0, void 0, void 0, function* (
             type,
             referenceId: referenceId || null,
             reason: reason || "",
+            executer: executer || "Unknown",
             createdDate: now,
         };
         yield (0, database_1.set)((0, database_1.ref)(db, `returns/${returnId}`), returnRecord);

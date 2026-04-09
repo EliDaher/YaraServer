@@ -37,13 +37,20 @@ import { database } from "../firebaseConfig";
 export const handlePurchase = async ({
   newPurchase,
   newProduct,
+  executer,
 }: {
   newPurchase: purchase;
   newProduct: Product;
+  executer?: string;
 }) => {
   // 1- تسجيل عملية الشراء
+  const normalizedExecuter = executer || "Unknown";
+  const purchaseWithExecuter: purchase = {
+    ...newPurchase,
+    executer: normalizedExecuter,
+  };
   const transferCost = Number(newPurchase.transferCost || 0);
-  const purchaseData = await createPurchaseInternal(newPurchase);
+  const purchaseData = await createPurchaseInternal(purchaseWithExecuter);
 
   // 2- تحديث مخزون المنتجات
   await createOrUpdateProductInternal(newProduct);
@@ -67,6 +74,7 @@ export const handlePurchase = async ({
         newPurchase.exchangeRate *
         (purchaseData.totalPrice - purchaseData.remainingDebt)
       ),
+      executer: normalizedExecuter,
     });
   } else if (purchaseData.remainingDebt == 0) {
     // 5- دين كامل
@@ -78,6 +86,7 @@ export const handlePurchase = async ({
       currency: newPurchase.currency,
       exchangeRate: newPurchase.exchangeRate,
       amount_base: -(newPurchase.exchangeRate * purchaseData.totalPrice),
+      executer: normalizedExecuter,
     });
   } else if (purchaseData.remainingDebt == purchaseData.totalPrice) {
   }
@@ -91,6 +100,7 @@ export const handlePurchase = async ({
       currency: newPurchase.currency,
       exchangeRate: newPurchase.exchangeRate,
       amount_base: -(newPurchase.exchangeRate * transferCost),
+      executer: normalizedExecuter,
     });
   }
 
@@ -98,10 +108,21 @@ export const handlePurchase = async ({
 };
 
 // ✅ عند تنفيذ عملية بيع
-export const handleSell = async ({ newSell }: { newSell: sell }) => {
+export const handleSell = async ({
+  newSell,
+  executer,
+}: {
+  newSell: sell;
+  executer?: string;
+}) => {
   try {
     // 1- تسجيل عملية البيع
-    const sellData = await createSellInternal(newSell);
+    const normalizedExecuter = executer || "Unknown";
+    const sellWithExecuter: sell = {
+      ...newSell,
+      executer: normalizedExecuter,
+    };
+    const sellData = await createSellInternal(sellWithExecuter);
 
     // 2- تحديث مخزون المنتجات
     console.log(newSell)
@@ -121,6 +142,7 @@ export const handleSell = async ({ newSell }: { newSell: sell }) => {
         currency: sellData.currency,
         exchangeRate: sellData.exchangeRate,
         amount_base: sellData.exchangeRate * sellData.totalPrice,
+        executer: normalizedExecuter,
       });
     } else if (sellData.remainingDebt < sellData.totalPrice) {
       // 4- اضافة دفعة في حالة ودجودها
@@ -135,6 +157,7 @@ export const handleSell = async ({ newSell }: { newSell: sell }) => {
           sellData.partValue ||
           sellData.exchangeRate *
             (sellData.totalPrice - sellData.remainingDebt),
+        executer: normalizedExecuter,
       });
     } else if (sellData.remainingDebt == sellData.totalPrice) {
     }
@@ -145,9 +168,15 @@ export const handleSell = async ({ newSell }: { newSell: sell }) => {
   }
 };
 
-export const customerPayment = async (paymentData: Payment) => {
+export const customerPayment = async (
+  paymentData: Payment,
+  executer?: string
+) => {
   // 1- تسجيل عملية الدفع
-  const data = await createPaymentInternal(paymentData);
+  const data = await createPaymentInternal({
+    ...paymentData,
+    executer: executer || "Unknown",
+  });
 
   // 2- تحديث رصيد العميل
   data.customerId
@@ -157,9 +186,15 @@ export const customerPayment = async (paymentData: Payment) => {
   return data;
 };
 
-export const supplierPayment = async (paymentData: Payment) => {
+export const supplierPayment = async (
+  paymentData: Payment,
+  executer?: string
+) => {
   // 1- تسجيل عملية الدفع
-  const data = await createPaymentInternal(paymentData);
+  const data = await createPaymentInternal({
+    ...paymentData,
+    executer: executer || "Unknown",
+  });
 
   // 2- تحديث رصيد المورد
   data.supplierId
@@ -180,10 +215,15 @@ export const handleSupplierReturn = async (newReturn: {
   productId: string;
   returnType: "debt" | "cash" | "part";
   reason: string;
+  executer?: string;
 }) => {
   try {
     // 1️⃣ إنشاء سجل الإرجاع
-    await createReturnInternal({ ...newReturn, type: "purchase-return" });
+    await createReturnInternal({
+      ...newReturn,
+      type: "purchase-return",
+      executer: newReturn.executer || "Unknown",
+    });
 
     // 2️⃣ إنشاء سجل مالي
     const paymentAmount =
@@ -201,6 +241,7 @@ export const handleSupplierReturn = async (newReturn: {
       currency: "USD",
       exchangeRate: 0,
       amount_base: 0,
+      executer: newReturn.executer || "Unknown",
     });
 
     // 3️⃣ تحديث رصيد المورد
@@ -250,6 +291,7 @@ type CustomerReturnPayload = {
   returnType: CustomerReturnType;
   partValue: number;
   reason: string;
+  executer?: string;
   items?: CustomerReturnItem[];
   // Legacy single-item shape (kept for backward compatibility)
   productCode?: string;
@@ -398,6 +440,7 @@ export const handleCustomerReturn = async (newReturn: CustomerReturnPayload) => 
       type: "sale-return",
       referenceId: newReturn.referenceId,
       reason: newReturn.reason || "",
+      executer: newReturn.executer || "Unknown",
     });
   }
 
@@ -428,6 +471,7 @@ export const handleCustomerReturn = async (newReturn: CustomerReturnPayload) => 
       currency: "USD",
       exchangeRate: 0,
       amount_base: 0,
+      executer: newReturn.executer || "Unknown",
     });
   }
 
@@ -466,6 +510,7 @@ export const warehouseTransfer = async (transferData: {
   quantity: number;
   note: string;
   newSellPrice?: number;
+  executer?: string;
 }) => {
 
   try{
@@ -499,7 +544,7 @@ export const warehouseTransfer = async (transferData: {
       stockBefore: currentStock,
       stockAfter: stockAfter,
 
-      performedBy: "admin", // لاحقًا اربطها بالجلسة
+      executer: transferData.executer || "Unknown",
       referenceId: `TR-${Date.now()}`,
 
       note: transferData.note,
@@ -531,6 +576,7 @@ export const warehouseTransfer = async (transferData: {
         exchangeRate: transferData.exchangeRate,
         amount_base: transferData.amount_base,
         amount: Number(-transferData.amount),
+        executer: transferData.executer || "Unknown",
         note:
           `نقل ${product.product.name} // ${transferData.note}` ||
           `Transfer: ${product.product.name || transferData.productId}`,

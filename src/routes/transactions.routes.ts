@@ -1,70 +1,97 @@
 import express, { Request, Response } from "express";
-import { customerPayment, handleCustomerReturn, handlePurchase, handleSell, handleSupplierReturn, supplierPayment, warehouseTransfer } from "../functions/transactions";
+import { push, ref, set } from "firebase/database";
+import {
+  customerPayment,
+  handleCustomerReturn,
+  handlePurchase,
+  handleSell,
+  handleSupplierReturn,
+  supplierPayment,
+  warehouseTransfer,
+} from "../functions/transactions";
 import { addAfterSellDiscountInternal } from "../controllers/sells.controller";
 import { updateCustomerBalanceInternal } from "../controllers/customer.controller";
+import { database } from "../firebaseConfig";
 
 const router = express.Router();
 
-router.post("/purchase", (req: Request, res: Response) => {
+const getExecuter = (req: Request) =>
+  typeof req.headers["x-executer"] === "string"
+    ? req.headers["x-executer"]
+    : undefined;
+
+router.post("/purchase", async (req: Request, res: Response) => {
   try {
     const { newPurchase, newProduct } = req.body;
     if (!newPurchase || !newProduct) {
-      throw new Error("❌ بيانات الشراء أو المنتج غير مكتملة");
+      throw new Error("Purchase payload is incomplete");
     }
-    const result = handlePurchase({newPurchase, newProduct});
-    res.json({ message: "✅ تمت عملية الشراء", data: result });
+
+    const result = await handlePurchase({
+      newPurchase,
+      newProduct,
+      executer: getExecuter(req),
+    });
+    res.json({ message: "Purchase completed", data: result });
   } catch (error: any) {
     res.status(400).json({ message: error.message });
   }
 });
 
-router.post("/sell", (req: Request, res: Response) => {
+router.post("/sell", async (req: Request, res: Response) => {
   try {
     const { newSell } = req.body;
     if (!newSell) {
-      throw new Error("❌ بيانات البيع غير مكتملة");
+      throw new Error("Sell payload is incomplete");
     }
-    const result = handleSell({newSell});
-    res.json({ message: "✅ تمت عملية البيع", data: result });
+    const result = await handleSell({
+      newSell,
+      executer: getExecuter(req),
+    });
+    res.json({ message: "Sell completed", data: result });
   } catch (error: any) {
     res.status(400).json({ message: error.message });
   }
 });
 
-router.post("/customerPayment", (req: Request, res: Response) => {
+router.post("/customerPayment", async (req: Request, res: Response) => {
   try {
     const { paymentData } = req.body;
     if (!paymentData) {
-      throw new Error("❌ بيانات الدفع غير مكتملة");
+      throw new Error("Customer payment payload is incomplete");
     }
-    const result = customerPayment(paymentData);
-    res.json({ message: "✅ تمت عملية الدفع", data: result });
+    const result = await customerPayment(paymentData, getExecuter(req));
+    res.json({ message: "Customer payment completed", data: result });
   } catch (error: any) {
     res.status(400).json({ message: error.message });
   }
 });
 
-router.post("/supplierPayment", (req: Request, res: Response) => {
+router.post("/supplierPayment", async (req: Request, res: Response) => {
   try {
     const { paymentData } = req.body;
     if (!paymentData) {
-      throw new Error("❌ بيانات الدفع غير مكتملة");
+      throw new Error("Supplier payment payload is incomplete");
     }
-    const result = supplierPayment(paymentData);
-    res.json({ message: "✅ تمت عملية الدفع", data: result });
+    const result = await supplierPayment(paymentData, getExecuter(req));
+    res.json({ message: "Supplier payment completed", data: result });
   } catch (error: any) {
     res.status(400).json({ message: error.message });
   }
 });
 
-router.post("/SupplierReturn", (req: Request, res: Response) => {
+router.post("/SupplierReturn", async (req: Request, res: Response) => {
   try {
     const { newReturn } = req.body;
     if (!newReturn) {
-      throw new Error("❌ بيانات الدفع غير مكتملة");
+      throw new Error("Supplier return payload is incomplete");
     }
-    const result = handleSupplierReturn(newReturn);
-    res.json({ message: "✅ تمت عملية الدفع", data: result });
+
+    const result = await handleSupplierReturn({
+      ...newReturn,
+      executer: getExecuter(req),
+    });
+    res.json({ message: "Supplier return completed", data: result });
   } catch (error: any) {
     res.status(400).json({ message: error.message });
   }
@@ -74,23 +101,29 @@ router.post("/CustomerReturn", async (req: Request, res: Response) => {
   try {
     const { newReturn } = req.body;
     if (!newReturn) {
-      throw new Error("❌ بيانات الدفع غير مكتملة");
+      throw new Error("Customer return payload is incomplete");
     }
-    const result = await handleCustomerReturn(newReturn);
-    res.json({ message: "✅ تمت عملية الدفع", data: result });
+    const result = await handleCustomerReturn({
+      ...newReturn,
+      executer: getExecuter(req),
+    });
+    res.json({ message: "Customer return completed", data: result });
   } catch (error: any) {
     res.status(400).json({ message: error.message });
   }
 });
 
-router.post("/warehouseTransfer", (req: Request, res: Response) => {
+router.post("/warehouseTransfer", async (req: Request, res: Response) => {
   try {
     const { transferData } = req.body;
     if (!transferData) {
-      throw new Error("❌ بيانات الدفع غير مكتملة");
+      throw new Error("Warehouse transfer payload is incomplete");
     }
-    const result = warehouseTransfer(transferData);
-    res.json({ message: "✅ تمت عملية النقل بين المستودعات", data: result });
+    const result = await warehouseTransfer({
+      ...transferData,
+      executer: getExecuter(req),
+    });
+    res.json({ message: "Warehouse transfer completed", data: result });
   } catch (error: any) {
     res.status(400).json({ message: error.message });
   }
@@ -99,23 +132,33 @@ router.post("/warehouseTransfer", (req: Request, res: Response) => {
 router.post("/afterSellDiscount", async (req: Request, res: Response) => {
   try {
     const { discount, sellId, customerId } = req.body;
-
-    if (!discount || !sellId || !customerId) {
-      throw new Error("❌ بيانات الخصم أو معرف الفاتورة أو معرف العميل غير مكتملة");
+    if (discount == null || !sellId || !customerId) {
+      throw new Error("after-sell-discount payload is incomplete");
     }
 
-    await addAfterSellDiscountInternal({sellId, discount});
+    await addAfterSellDiscountInternal({ sellId, discount });
+    await updateCustomerBalanceInternal(customerId, discount);
 
-    await updateCustomerBalanceInternal(
+    const executer = getExecuter(req) || "Unknown";
+    const operationRef = push(ref(database, "discountOperations"));
+    const operationId = operationRef.key || `discount-${Date.now()}`;
+
+    await set(operationRef, {
+      id: operationId,
+      type: "after_sell_discount",
+      executer,
+      date: new Date().toLocaleString(),
+      referenceId: sellId,
+      amount: Number(-discount),
+      currency: "USD",
+      details: `After-sell discount for sell ${sellId}`,
       customerId,
-      discount
-    )
+    });
 
-    res.json({ message: "✅ تمت عملية الخصم بعد البيع" });
+    res.json({ message: "After-sell discount completed" });
   } catch (error: any) {
     res.status(400).json({ message: error.message });
   }
 });
-
 
 export default router;

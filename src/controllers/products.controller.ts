@@ -5,7 +5,7 @@ import { database } from "../firebaseConfig";
 
 let productsCache: any = null;
 let lastFetch = 0;
-let compareTime = 120_000
+let compareTime = 45_000
 
 const fetchReset = () => {
   lastFetch = Date.now() - compareTime;
@@ -83,6 +83,8 @@ export const getProductById = async (req: Request, res: Response) => {
       )
       .map((t: any) => ({
         ...t,
+        executer: t.executer || t.performedBy || "Unknown",
+        performedBy: t.executer || t.performedBy || "Unknown",
         type: "transfer", // لتمييزها في الواجهة
       }));
 

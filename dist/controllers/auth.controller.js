@@ -33,6 +33,7 @@ const login = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
             user: {
                 username: user.username || username,
                 role: user.role,
+                permissions: Array.isArray(user.permissions) ? user.permissions : [],
                 // يمكن لاحقًا إضافة token JWT هنا
             },
         });
@@ -51,7 +52,15 @@ const createUser = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         if (snapshot.exists()) {
             return res.status(400).json({ error: "المستخدم موجود بالفعل" });
         }
-        yield (0, database_1.set)(dbRef, { username, password, role, permissions });
+        const now = new Date().toLocaleString();
+        yield (0, database_1.set)(dbRef, {
+            username,
+            password,
+            role,
+            permissions: Array.isArray(permissions) ? permissions : [],
+            createdAt: now,
+            updatedAt: now,
+        });
         return res.json({ message: "تم إنشاء المستخدم بنجاح" });
     }
     catch (error) {

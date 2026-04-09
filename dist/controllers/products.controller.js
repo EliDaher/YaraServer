@@ -71,7 +71,7 @@ const getProductById = (req, res) => __awaiter(void 0, void 0, void 0, function*
         const transfers = Object.values(transfersData)
             .filter((t) => t.productId === foundProduct.id ||
             t.productCode === foundProduct.code)
-            .map((t) => (Object.assign(Object.assign({}, t), { type: "transfer" })));
+            .map((t) => (Object.assign(Object.assign({}, t), { executer: t.executer || t.performedBy || "Unknown", performedBy: t.executer || t.performedBy || "Unknown", type: "transfer" })));
         // جلب المشتريات
         const purchasesSnapshot = yield (0, database_1.get)((0, database_1.ref)(firebaseConfig_1.database, "purchases"));
         const purchasesData = purchasesSnapshot.exists()

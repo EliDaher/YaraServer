@@ -12,6 +12,7 @@ export interface purchase {
     currency: string,
     exchangeRate: number,
     amount_base: number,
+    executer?: string,
     paymentStatus: string,
     remainingDebt: number,
     date: string

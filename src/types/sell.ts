@@ -7,6 +7,7 @@ export interface sell {
   currency: string;
   exchangeRate: number;
   amount_base: number;
+  executer?: string;
   products: {
     category: string;
     code: string;

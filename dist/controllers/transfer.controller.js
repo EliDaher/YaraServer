@@ -25,7 +25,7 @@ const createTransferInternal = (data) => __awaiter(void 0, void 0, void 0, funct
             currency: data.currency || "USD",
             stockBefore: Number(data.stockBefore),
             stockAfter: Number(data.stockAfter),
-            performedBy: data.performedBy || "system",
+            executer: data.executer || "Unknown",
             referenceId: data.referenceId || null,
             note: data.note || "",
             createdAt: Date.now(),

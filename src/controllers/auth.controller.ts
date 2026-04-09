@@ -29,6 +29,7 @@ export const login = async (req: Request, res: Response) => {
       user: {
         username: user.username || username,
         role: user.role,
+        permissions: Array.isArray(user.permissions) ? user.permissions : [],
         // يمكن لاحقًا إضافة token JWT هنا
       },
     });
@@ -48,7 +49,15 @@ export const createUser = async (req: Request, res: Response) => {
       return res.status(400).json({ error: "المستخدم موجود بالفعل" });
     }
     
-    await set(dbRef, { username, password, role, permissions });
+    const now = new Date().toLocaleString();
+    await set(dbRef, {
+      username,
+      password,
+      role,
+      permissions: Array.isArray(permissions) ? permissions : [],
+      createdAt: now,
+      updatedAt: now,
+    });
     return res.json({ message: "تم إنشاء المستخدم بنجاح" });
   } catch (error: any) {
     console.error("Create user error:", error);

@@ -10,6 +10,7 @@ export interface ReturnData {
   type: "sale-return" | "purchase-return";
   referenceId?: string | null;
   reason?: string;
+  executer?: string;
 }
 
 export interface ReturnRecord extends ReturnData {
@@ -76,7 +77,7 @@ export const getReturnById = async (req: Request, res: Response) => {
 
 // ✅ create return (customer return or purchase return)
 export const createReturn = async (req: Request, res: Response) => {
-  const { productCode, warehouse, qty, type, referenceId, reason } = req.body;
+  const { productCode, warehouse, qty, type, referenceId, reason, executer } = req.body;
 
   if (!productCode || !warehouse || !qty || !type) {
     return res
@@ -116,6 +117,7 @@ export const createReturn = async (req: Request, res: Response) => {
       type,
       referenceId: referenceId || null,
       reason: reason || "",
+      executer: executer || "Unknown",
       createdDate: now,
     };
 

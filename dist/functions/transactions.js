@@ -21,10 +21,12 @@ const suppliers_controller_1 = require("../controllers/suppliers.controller");
 const transfer_controller_1 = require("../controllers/transfer.controller");
 const firebaseConfig_1 = require("../firebaseConfig");
 // ✅ عند تنفيذ عملية شراء
-const handlePurchase = (_a) => __awaiter(void 0, [_a], void 0, function* ({ newPurchase, newProduct, }) {
+const handlePurchase = (_a) => __awaiter(void 0, [_a], void 0, function* ({ newPurchase, newProduct, executer, }) {
     // 1- تسجيل عملية الشراء
+    const normalizedExecuter = executer || "Unknown";
+    const purchaseWithExecuter = Object.assign(Object.assign({}, newPurchase), { executer: normalizedExecuter });
     const transferCost = Number(newPurchase.transferCost || 0);
-    const purchaseData = yield (0, purchases_controller_1.createPurchaseInternal)(newPurchase);
+    const purchaseData = yield (0, purchases_controller_1.createPurchaseInternal)(purchaseWithExecuter);
     // 2- تحديث مخزون المنتجات
     yield (0, products_controller_1.createOrUpdateProductInternal)(newProduct);
     // 3- تعديل رصيد المورد (إضافة دين جديد)
@@ -41,6 +43,7 @@ const handlePurchase = (_a) => __awaiter(void 0, [_a], void 0, function* ({ newP
             exchangeRate: newPurchase.exchangeRate,
             amount_base: -(newPurchase.exchangeRate *
                 (purchaseData.totalPrice - purchaseData.remainingDebt)),
+            executer: normalizedExecuter,
         });
     }
     else if (purchaseData.remainingDebt == 0) {
@@ -53,6 +56,7 @@ const handlePurchase = (_a) => __awaiter(void 0, [_a], void 0, function* ({ newP
             currency: newPurchase.currency,
             exchangeRate: newPurchase.exchangeRate,
             amount_base: -(newPurchase.exchangeRate * purchaseData.totalPrice),
+            executer: normalizedExecuter,
         });
     }
     else if (purchaseData.remainingDebt == purchaseData.totalPrice) {
@@ -66,16 +70,19 @@ const handlePurchase = (_a) => __awaiter(void 0, [_a], void 0, function* ({ newP
             currency: newPurchase.currency,
             exchangeRate: newPurchase.exchangeRate,
             amount_base: -(newPurchase.exchangeRate * transferCost),
+            executer: normalizedExecuter,
         });
     }
     return purchaseData;
 });
 exports.handlePurchase = handlePurchase;
 // ✅ عند تنفيذ عملية بيع
-const handleSell = (_a) => __awaiter(void 0, [_a], void 0, function* ({ newSell }) {
+const handleSell = (_a) => __awaiter(void 0, [_a], void 0, function* ({ newSell, executer, }) {
     try {
         // 1- تسجيل عملية البيع
-        const sellData = yield (0, sells_controller_1.createSellInternal)(newSell);
+        const normalizedExecuter = executer || "Unknown";
+        const sellWithExecuter = Object.assign(Object.assign({}, newSell), { executer: normalizedExecuter });
+        const sellData = yield (0, sells_controller_1.createSellInternal)(sellWithExecuter);
         // 2- تحديث مخزون المنتجات
         console.log(newSell);
         newSell.products.forEach((p) => __awaiter(void 0, void 0, void 0, function* () {
@@ -92,6 +99,7 @@ const handleSell = (_a) => __awaiter(void 0, [_a], void 0, function* ({ newSell 
                 currency: sellData.currency,
                 exchangeRate: sellData.exchangeRate,
                 amount_base: sellData.exchangeRate * sellData.totalPrice,
+                executer: normalizedExecuter,
             });
         }
         else if (sellData.remainingDebt < sellData.totalPrice) {
@@ -106,6 +114,7 @@ const handleSell = (_a) => __awaiter(void 0, [_a], void 0, function* ({ newSell 
                 amount_base: sellData.partValue ||
                     sellData.exchangeRate *
                         (sellData.totalPrice - sellData.remainingDebt),
+                executer: normalizedExecuter,
             });
         }
         else if (sellData.remainingDebt == sellData.totalPrice) {
@@ -117,9 +126,9 @@ const handleSell = (_a) => __awaiter(void 0, [_a], void 0, function* ({ newSell 
     }
 });
 exports.handleSell = handleSell;
-const customerPayment = (paymentData) => __awaiter(void 0, void 0, void 0, function* () {
+const customerPayment = (paymentData, executer) => __awaiter(void 0, void 0, void 0, function* () {
     // 1- تسجيل عملية الدفع
-    const data = yield (0, payments_controller_1.createPaymentInternal)(paymentData);
+    const data = yield (0, payments_controller_1.createPaymentInternal)(Object.assign(Object.assign({}, paymentData), { executer: executer || "Unknown" }));
     // 2- تحديث رصيد العميل
     data.customerId
         ? (0, customer_controller_1.updateCustomerInternal)(data.customerId, undefined, paymentData)
@@ -127,9 +136,9 @@ const customerPayment = (paymentData) => __awaiter(void 0, void 0, void 0, funct
     return data;
 });
 exports.customerPayment = customerPayment;
-const supplierPayment = (paymentData) => __awaiter(void 0, void 0, void 0, function* () {
+const supplierPayment = (paymentData, executer) => __awaiter(void 0, void 0, void 0, function* () {
     // 1- تسجيل عملية الدفع
-    const data = yield (0, payments_controller_1.createPaymentInternal)(paymentData);
+    const data = yield (0, payments_controller_1.createPaymentInternal)(Object.assign(Object.assign({}, paymentData), { executer: executer || "Unknown" }));
     // 2- تحديث رصيد المورد
     data.supplierId
         ? (0, suppliers_controller_1.updateSupplierInternal)(data.supplierId, undefined, paymentData)
@@ -140,7 +149,7 @@ exports.supplierPayment = supplierPayment;
 const handleSupplierReturn = (newReturn) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         // 1️⃣ إنشاء سجل الإرجاع
-        yield (0, returns_controller_1.createReturnInternal)(Object.assign(Object.assign({}, newReturn), { type: "purchase-return" }));
+        yield (0, returns_controller_1.createReturnInternal)(Object.assign(Object.assign({}, newReturn), { type: "purchase-return", executer: newReturn.executer || "Unknown" }));
         // 2️⃣ إنشاء سجل مالي
         const paymentAmount = newReturn.returnType === "cash"
             ? newReturn.returnValue
@@ -155,6 +164,7 @@ const handleSupplierReturn = (newReturn) => __awaiter(void 0, void 0, void 0, fu
             currency: "USD",
             exchangeRate: 0,
             amount_base: 0,
+            executer: newReturn.executer || "Unknown",
         });
         // 3️⃣ تحديث رصيد المورد
         let balanceChange = 0;
@@ -287,6 +297,7 @@ const handleCustomerReturn = (newReturn) => __awaiter(void 0, void 0, void 0, fu
             type: "sale-return",
             referenceId: newReturn.referenceId,
             reason: newReturn.reason || "",
+            executer: newReturn.executer || "Unknown",
         });
     }
     // 3) Update invoice one time for all returned items
@@ -309,6 +320,7 @@ const handleCustomerReturn = (newReturn) => __awaiter(void 0, void 0, void 0, fu
             currency: "USD",
             exchangeRate: 0,
             amount_base: 0,
+            executer: newReturn.executer || "Unknown",
         });
     }
     // 5) Customer balance change once per operation
@@ -356,7 +368,7 @@ const warehouseTransfer = (transferData) => __awaiter(void 0, void 0, void 0, fu
             currency: transferData.currency,
             stockBefore: currentStock,
             stockAfter: stockAfter,
-            performedBy: "admin", // لاحقًا اربطها بالجلسة
+            executer: transferData.executer || "Unknown",
             referenceId: `TR-${Date.now()}`,
             note: transferData.note,
         });
@@ -373,6 +385,7 @@ const warehouseTransfer = (transferData) => __awaiter(void 0, void 0, void 0, fu
                 exchangeRate: transferData.exchangeRate,
                 amount_base: transferData.amount_base,
                 amount: Number(-transferData.amount),
+                executer: transferData.executer || "Unknown",
                 note: `نقل ${product.product.name} // ${transferData.note}` ||
                     `Transfer: ${product.product.name || transferData.productId}`,
             });

@@ -8,6 +8,7 @@ export interface Payment {
     exchangeRate: number,
     amount_base: number,
     amount: number,
+    executer?: string,
     date?: string,
     note: string
 }

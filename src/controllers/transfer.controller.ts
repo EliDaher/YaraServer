@@ -16,7 +16,7 @@ interface CreateTransferInput {
   stockBefore: number;
   stockAfter: number;
 
-  performedBy?: string; // userId أو name
+  executer?: string;
   referenceId?: string; // رقم الفاتورة أو العملية
 
   note?: string;
@@ -39,7 +39,7 @@ export const createTransferInternal = async (data: CreateTransferInput) => {
       stockBefore: Number(data.stockBefore),
       stockAfter: Number(data.stockAfter),
 
-      performedBy: data.performedBy || "system",
+      executer: data.executer || "Unknown",
       referenceId: data.referenceId || null,
 
       note: data.note || "",
