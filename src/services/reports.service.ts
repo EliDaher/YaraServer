@@ -1,15 +1,11 @@
 import { get, ref } from "firebase/database";
 import { database } from "../firebaseConfig";
-import {
-  getOperationCollections,
-  normalizeOperations,
-  OperationRow,
-  toTimestamp,
-} from "./operations.service";
 
 const DEFAULT_TIMEZONE = "Asia/Damascus";
 const BASELINE_DAYS = 7;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const RAW_COLLECTION_LIMIT = 400;
+const RAW_OPERATION_LIMIT = 800;
 
 type OperationCategory =
   | "purchase"
@@ -43,14 +39,44 @@ type OverviewAlert = {
   metrics?: Record<string, number | string>;
 };
 
+type OperationSampleRow = {
+  id: string;
+  type: string;
+  executer: string;
+  date: string;
+  referenceId: string;
+  amount: number;
+  currency: string;
+  details: string;
+};
+
+type BufferedOperationSample = OperationSampleRow & {
+  _timestamp: number;
+};
+
+type RawPayloadBuckets = {
+  operationsToday: OperationSampleRow[];
+  purchasesToday: Record<string, any>[];
+  sellsToday: Record<string, any>[];
+  paymentsToday: Record<string, any>[];
+  returnsToday: Record<string, any>[];
+  transfersToday: Record<string, any>[];
+  discountsToday: Record<string, any>[];
+};
+
+type RawPayloadTruncated = {
+  operationsToday: boolean;
+  purchasesToday: boolean;
+  sellsToday: boolean;
+  paymentsToday: boolean;
+  returnsToday: boolean;
+  transfersToday: boolean;
+  discountsToday: boolean;
+};
+
 export type TodayOverviewOptions = {
   includeRaw?: boolean;
   timezone?: string;
-};
-
-type TimestampedSlice = {
-  today: Record<string, any>[];
-  invalidDateCount: number;
 };
 
 const asRecord = (value: unknown): Record<string, any> =>
@@ -63,8 +89,6 @@ const toNumber = (value: unknown) => {
   const parsed = Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
 };
-
-const toArray = (value: unknown): any[] => Object.values(asRecord(value));
 
 const parseTimestampLoose = (value: unknown): number => {
   if (typeof value === "number") {
@@ -88,75 +112,25 @@ const toDateKey = (timestamp: number, timezone: string): string =>
     day: "2-digit",
   }).format(new Date(timestamp));
 
+const toOperationDateString = (value: unknown, fallbackTimestamp: number) => {
+  if (typeof value === "number") {
+    const asDate = new Date(value);
+    return Number.isNaN(asDate.getTime())
+      ? new Date(fallbackTimestamp).toISOString()
+      : asDate.toISOString();
+  }
+
+  const asText = asString(value);
+  return asText || new Date(fallbackTimestamp).toISOString();
+};
+
 const average = (values: number[]) =>
   values.length
     ? values.reduce((sum, current) => sum + current, 0) / values.length
     : 0;
 
-const toOperationCategory = (type: string): OperationCategory => {
-  const normalized = asString(type);
-  if (normalized === "purchase") return "purchase";
-  if (normalized === "sell") return "sell";
-  if (normalized.startsWith("payment:")) return "payment";
-  if (normalized.includes("return")) return "return";
-  if (normalized === "warehouse_transfer") return "transfer";
-  if (normalized === "after_sell_discount") return "discount";
-  return "other";
-};
-
-const getTimestampFromFields = (
-  row: Record<string, any>,
-  fields: string[]
-): number => {
-  for (const field of fields) {
-    const rawValue = row[field];
-    if (rawValue == null) {
-      continue;
-    }
-
-    const parsed =
-      field === "createdAt" && typeof rawValue === "number"
-        ? toNumber(rawValue)
-        : parseTimestampLoose(rawValue);
-
-    if (parsed > 0) {
-      return parsed;
-    }
-  }
-
-  return 0;
-};
-
-const pickTodayRows = (
-  rows: any[],
-  dateFields: string[],
-  todayDateKey: string,
-  timezone: string
-): TimestampedSlice => {
-  let invalidDateCount = 0;
-  const today: Record<string, any>[] = [];
-
-  rows.forEach((entry) => {
-    const row = asRecord(entry);
-    const timestamp = getTimestampFromFields(row, dateFields);
-    if (timestamp <= 0) {
-      invalidDateCount += 1;
-      return;
-    }
-
-    const rowDateKey = toDateKey(timestamp, timezone);
-    if (rowDateKey === todayDateKey) {
-      today.push(row);
-    }
-  });
-
-  return { today, invalidDateCount };
-};
-
-const readCollection = async (path: string): Promise<any[]> => {
-  const snapshot = await get(ref(database, path));
-  return snapshot.exists() ? toArray(snapshot.val()) : [];
-};
+const normalizeExecuter = (row: Record<string, any>) =>
+  asString(row.executer) || asString(row.performedBy) || "Unknown";
 
 const incrementCount = (map: Map<string, number>, key: string, value = 1) => {
   if (!key) {
@@ -172,91 +146,86 @@ const createCurrencyBucket = () => ({
   net: 0,
 });
 
+const pushTopAccount = (
+  topAccounts: AccountAttentionRow[],
+  row: AccountAttentionRow,
+  limit = 5
+) => {
+  topAccounts.push(row);
+  topAccounts.sort((a, b) => b.openAmount - a.openAmount);
+  if (topAccounts.length > limit) {
+    topAccounts.length = limit;
+  }
+};
+
+const pushCapped = <T>(
+  list: T[],
+  value: T,
+  limit: number,
+  onTruncated: () => void
+) => {
+  if (list.length < limit) {
+    list.push(value);
+    return;
+  }
+  onTruncated();
+};
+
+const pushRecentSample = (
+  buffer: BufferedOperationSample[],
+  item: BufferedOperationSample,
+  maxItems: number
+) => {
+  if (buffer.length < maxItems) {
+    buffer.push(item);
+    return;
+  }
+
+  let minIndex = 0;
+  for (let i = 1; i < buffer.length; i += 1) {
+    if (buffer[i]._timestamp < buffer[minIndex]._timestamp) {
+      minIndex = i;
+    }
+  }
+
+  if (item._timestamp > buffer[minIndex]._timestamp) {
+    buffer[minIndex] = item;
+  }
+};
+
+const ensureDailyStat = (map: Map<string, DailyStat>, dateKey: string) => {
+  if (!map.has(dateKey)) {
+    map.set(dateKey, { operations: 0, returns: 0, paymentNet: 0 });
+  }
+  return map.get(dateKey)!;
+};
+
+const processSnapshotRows = async (
+  path: string,
+  rowHandler: (row: Record<string, any>, key: string) => void
+) => {
+  const snapshot = await get(ref(database, path));
+  if (!snapshot.exists()) {
+    return;
+  }
+
+  snapshot.forEach((child) => {
+    rowHandler(asRecord(child.val()), child.key || "");
+    return false;
+  });
+};
+
 export const buildTodayOverview = async (
   options: TodayOverviewOptions = {}
 ) => {
   const timezone = options.timezone || DEFAULT_TIMEZONE;
   const includeRaw = Boolean(options.includeRaw);
   const generatedAt = new Date().toISOString();
-  const todayDateKey = toDateKey(Date.now(), timezone);
+  const nowTimestamp = Date.now();
+  const todayDateKey = toDateKey(nowTimestamp, timezone);
 
-  const [operationCollections, customersRaw, suppliersRaw] = await Promise.all([
-    getOperationCollections(),
-    readCollection("customer"),
-    readCollection("supplier"),
-  ]);
-
-  const operations = normalizeOperations(
-    operationCollections.purchases,
-    operationCollections.sells,
-    operationCollections.payments,
-    operationCollections.returns,
-    operationCollections.transfers,
-    operationCollections.discounts
-  );
-
-  let invalidOperationDates = 0;
-  const operationsToday: OperationRow[] = operations.filter((operation) => {
-    const timestamp = toTimestamp(operation.date);
-    if (timestamp <= 0) {
-      invalidOperationDates += 1;
-      return false;
-    }
-    return toDateKey(timestamp, timezone) === todayDateKey;
-  });
-
-  const purchasesSlice = pickTodayRows(
-    operationCollections.purchases,
-    ["date"],
-    todayDateKey,
-    timezone
-  );
-  const sellsSlice = pickTodayRows(
-    operationCollections.sells,
-    ["date"],
-    todayDateKey,
-    timezone
-  );
-  const paymentsSlice = pickTodayRows(
-    operationCollections.payments,
-    ["date"],
-    todayDateKey,
-    timezone
-  );
-  const returnsSlice = pickTodayRows(
-    operationCollections.returns,
-    ["createdDate", "date"],
-    todayDateKey,
-    timezone
-  );
-  const transfersSlice = pickTodayRows(
-    operationCollections.transfers,
-    ["createdAt", "date"],
-    todayDateKey,
-    timezone
-  );
-  const discountsSlice = pickTodayRows(
-    operationCollections.discounts,
-    ["date"],
-    todayDateKey,
-    timezone
-  );
-
-  const purchasesToday = purchasesSlice.today;
-  const sellsToday = sellsSlice.today;
-  const paymentsToday = paymentsSlice.today;
-  const returnsToday = returnsSlice.today;
-  const transfersToday = transfersSlice.today;
-  const discountsToday = discountsSlice.today;
-
-  const invalidDateRecords =
-    invalidOperationDates +
-    purchasesSlice.invalidDateCount +
-    sellsSlice.invalidDateCount +
-    paymentsSlice.invalidDateCount +
-    returnsSlice.invalidDateCount +
-    transfersSlice.invalidDateCount +
-    discountsSlice.invalidDateCount;
+  let invalidDateRecords = 0;
+  let operationsTodayCount = 0;
 
   const categoryCounts: Record<OperationCategory, number> = {
     purchase: 0,
@@ -267,32 +236,12 @@ export const buildTodayOverview = async (
     discount: 0,
     other: 0,
   };
+
   const executerCounts = new Map<string, number>();
-  operationsToday.forEach((operation) => {
-    const category = toOperationCategory(operation.type);
-    categoryCounts[category] += 1;
-    incrementCount(executerCounts, asString(operation.executer) || "Unknown");
-  });
-
   const warehouseCounts = new Map<string, number>();
-  purchasesToday.forEach((row) => {
-    incrementCount(warehouseCounts, asString(row.warehouse));
-  });
-  sellsToday.forEach((row) => {
-    const products = Array.isArray(row.products) ? row.products : [];
-    products.forEach((product: any) => {
-      const warehouse = asString(asRecord(product).warehouse);
-      incrementCount(warehouseCounts, warehouse);
-    });
-  });
-  returnsToday.forEach((row) => {
-    incrementCount(warehouseCounts, asString(row.warehouse));
-  });
-  transfersToday.forEach((row) => {
-    incrementCount(warehouseCounts, asString(row.fromWarehouse));
-    incrementCount(warehouseCounts, asString(row.toWarehouse));
-  });
+  const dailyStats = new Map<string, DailyStat>();
 
+  let sellsTodayCount = 0;
   let salesCashCount = 0;
   let salesPartCount = 0;
   let salesDebtCount = 0;
@@ -300,17 +249,7 @@ export const buildTodayOverview = async (
   let salesValueBaseToday = 0;
   let salesRemainingDebtToday = 0;
 
-  sellsToday.forEach((sell) => {
-    const status = asString(sell.paymentStatus).toLowerCase();
-    if (status === "cash") salesCashCount += 1;
-    else if (status === "part") salesPartCount += 1;
-    else if (status === "debt") salesDebtCount += 1;
-
-    salesValueToday += toNumber(sell.totalPrice);
-    salesValueBaseToday += toNumber(sell.amount_base);
-    salesRemainingDebtToday += Math.max(0, toNumber(sell.remainingDebt));
-  });
-
+  let purchasesTodayCount = 0;
   let purchasesCashCount = 0;
   let purchasesPartCount = 0;
   let purchasesDebtCount = 0;
@@ -318,17 +257,7 @@ export const buildTodayOverview = async (
   let purchaseValueBaseToday = 0;
   let purchasesRemainingDebtToday = 0;
 
-  purchasesToday.forEach((purchase) => {
-    const status = asString(purchase.paymentStatus).toLowerCase();
-    if (status === "cash") purchasesCashCount += 1;
-    else if (status === "part") purchasesPartCount += 1;
-    else if (status === "debt") purchasesDebtCount += 1;
-
-    purchaseValueToday += toNumber(purchase.totalPrice);
-    purchaseValueBaseToday += toNumber(purchase.amount_base);
-    purchasesRemainingDebtToday += Math.max(0, toNumber(purchase.remainingDebt));
-  });
-
+  let paymentsTodayCount = 0;
   let paymentsInflow = 0;
   let paymentsOutflow = 0;
   let paymentsInflowBase = 0;
@@ -341,126 +270,470 @@ export const buildTodayOverview = async (
     { entries: number; inflow: number; outflow: number; net: number }
   > = {};
 
-  paymentsToday.forEach((payment) => {
-    const amount = toNumber(payment.amount);
-    const amountBase = toNumber(payment.amount_base);
-    const currency = asString(payment.currency) || "UNKNOWN";
+  let returnsTodayCount = 0;
+  let returnEstimatedValue = 0;
+  let transfersTodayCount = 0;
+  let transferCostToday = 0;
+  let discountsTodayCount = 0;
+  let totalDiscountAmount = 0;
+
+  let openReceivablesTotal = 0;
+  let openPayablesTotal = 0;
+  let customersWithOpenBalance = 0;
+  let suppliersWithOpenBalance = 0;
+  const topCustomers: AccountAttentionRow[] = [];
+  const topSuppliers: AccountAttentionRow[] = [];
+
+  const sampleBufferLimit = includeRaw ? 300 : 120;
+  const sampleOperationBuffer: BufferedOperationSample[] = [];
+
+  const rawBuckets: RawPayloadBuckets | null = includeRaw
+    ? {
+        operationsToday: [],
+        purchasesToday: [],
+        sellsToday: [],
+        paymentsToday: [],
+        returnsToday: [],
+        transfersToday: [],
+        discountsToday: [],
+      }
+    : null;
+
+  const rawTruncated: RawPayloadTruncated | null = includeRaw
+    ? {
+        operationsToday: false,
+        purchasesToday: false,
+        sellsToday: false,
+        paymentsToday: false,
+        returnsToday: false,
+        transfersToday: false,
+        discountsToday: false,
+      }
+    : null;
+
+  const registerDailyOperation = (
+    dateKey: string,
+    category: OperationCategory,
+    paymentNetImpact = 0
+  ) => {
+    const stat = ensureDailyStat(dailyStats, dateKey);
+    stat.operations += 1;
+    if (category === "return") {
+      stat.returns += 1;
+    }
+    if (category === "payment") {
+      stat.paymentNet += paymentNetImpact;
+    }
+  };
+
+  const registerTodayOperation = (
+    category: OperationCategory,
+    row: OperationSampleRow,
+    timestamp: number,
+    warehouses: string[] = []
+  ) => {
+    operationsTodayCount += 1;
+    categoryCounts[category] += 1;
+    incrementCount(executerCounts, row.executer || "Unknown");
+    warehouses.forEach((warehouse) => incrementCount(warehouseCounts, warehouse));
+
+    pushRecentSample(
+      sampleOperationBuffer,
+      { ...row, _timestamp: timestamp },
+      sampleBufferLimit
+    );
+
+    if (rawBuckets && rawTruncated) {
+      pushCapped(
+        rawBuckets.operationsToday,
+        row,
+        RAW_OPERATION_LIMIT,
+        () => (rawTruncated.operationsToday = true)
+      );
+    }
+  };
+
+  await processSnapshotRows("purchases", (row, key) => {
+    const timestamp = parseTimestampLoose(row.date);
+    if (timestamp <= 0) {
+      invalidDateRecords += 1;
+      return;
+    }
+
+    const dateKey = toDateKey(timestamp, timezone);
+    registerDailyOperation(dateKey, "purchase");
+
+    if (dateKey !== todayDateKey) {
+      return;
+    }
+
+    purchasesTodayCount += 1;
+    const warehouse = asString(row.warehouse);
+    const executer = normalizeExecuter(row);
+    const amount = toNumber(row.totalPrice);
+    const currency = asString(row.currency);
+    const referenceId = asString(row.id) || asString(row.referenceId) || key || "-";
+    const status = asString(row.paymentStatus).toLowerCase();
+
+    if (status === "cash") purchasesCashCount += 1;
+    else if (status === "part") purchasesPartCount += 1;
+    else if (status === "debt") purchasesDebtCount += 1;
+
+    purchaseValueToday += amount;
+    purchaseValueBaseToday += toNumber(row.amount_base);
+    purchasesRemainingDebtToday += Math.max(0, toNumber(row.remainingDebt));
+
+    registerTodayOperation(
+      "purchase",
+      {
+        id: referenceId,
+        type: "purchase",
+        executer,
+        date: toOperationDateString(row.date, timestamp),
+        referenceId,
+        amount,
+        currency,
+        details:
+          asString(row.name) ||
+          asString(row.code) ||
+          `Purchase supplier:${asString(row.supplierId)}`,
+      },
+      timestamp,
+      warehouse ? [warehouse] : []
+    );
+
+    if (rawBuckets && rawTruncated) {
+      pushCapped(
+        rawBuckets.purchasesToday,
+        row,
+        RAW_COLLECTION_LIMIT,
+        () => (rawTruncated.purchasesToday = true)
+      );
+    }
+  });
+
+  await processSnapshotRows("sells", (row, key) => {
+    const timestamp = parseTimestampLoose(row.date);
+    if (timestamp <= 0) {
+      invalidDateRecords += 1;
+      return;
+    }
+
+    const dateKey = toDateKey(timestamp, timezone);
+    registerDailyOperation(dateKey, "sell");
+
+    if (dateKey !== todayDateKey) {
+      return;
+    }
+
+    sellsTodayCount += 1;
+    const executer = normalizeExecuter(row);
+    const amount = toNumber(row.totalPrice);
+    const currency = asString(row.currency);
+    const referenceId = asString(row.id) || asString(row.referenceId) || key || "-";
+    const status = asString(row.paymentStatus).toLowerCase();
+    const productWarehouses: string[] = [];
+    const products = Array.isArray(row.products) ? row.products : [];
+    products.forEach((product) => {
+      const warehouse = asString(asRecord(product).warehouse);
+      if (warehouse) {
+        productWarehouses.push(warehouse);
+      }
+    });
+
+    if (status === "cash") salesCashCount += 1;
+    else if (status === "part") salesPartCount += 1;
+    else if (status === "debt") salesDebtCount += 1;
+
+    salesValueToday += amount;
+    salesValueBaseToday += toNumber(row.amount_base);
+    salesRemainingDebtToday += Math.max(0, toNumber(row.remainingDebt));
+
+    registerTodayOperation(
+      "sell",
+      {
+        id: referenceId,
+        type: "sell",
+        executer,
+        date: toOperationDateString(row.date, timestamp),
+        referenceId,
+        amount,
+        currency,
+        details: `Sell customer:${asString(row.customerId)}`,
+      },
+      timestamp,
+      productWarehouses
+    );
+
+    if (rawBuckets && rawTruncated) {
+      pushCapped(
+        rawBuckets.sellsToday,
+        row,
+        RAW_COLLECTION_LIMIT,
+        () => (rawTruncated.sellsToday = true)
+      );
+    }
+  });
+
+  await processSnapshotRows("payment", (row, key) => {
+    const timestamp = parseTimestampLoose(row.date);
+    if (timestamp <= 0) {
+      invalidDateRecords += 1;
+      return;
+    }
+
+    const dateKey = toDateKey(timestamp, timezone);
+    const amount = toNumber(row.amount);
+    registerDailyOperation(dateKey, "payment", amount);
+
+    if (dateKey !== todayDateKey) {
+      return;
+    }
+
+    paymentsTodayCount += 1;
+    const executer = normalizeExecuter(row);
+    const currency = asString(row.currency) || "UNKNOWN";
+    const referenceId = asString(row.id) || asString(row.referenceId) || key || "-";
 
     if (!paymentsByCurrency[currency]) {
       paymentsByCurrency[currency] = createCurrencyBucket();
     }
-
-    const bucket = paymentsByCurrency[currency];
-    bucket.entries += 1;
+    const currencyBucket = paymentsByCurrency[currency];
+    currencyBucket.entries += 1;
 
     if (amount >= 0) {
       paymentsInflow += amount;
-      bucket.inflow += amount;
+      currencyBucket.inflow += amount;
     } else {
       const absAmount = Math.abs(amount);
       paymentsOutflow += absAmount;
-      bucket.outflow += absAmount;
+      currencyBucket.outflow += absAmount;
     }
-    bucket.net += amount;
+    currencyBucket.net += amount;
 
+    const amountBase = toNumber(row.amount_base);
     if (amountBase >= 0) {
       paymentsInflowBase += amountBase;
     } else {
       paymentsOutflowBase += Math.abs(amountBase);
     }
 
-    if (payment.customerId) {
+    if (row.customerId) {
       customerPaymentEntries += 1;
     }
-    if (payment.supplierId) {
+    if (row.supplierId) {
       supplierPaymentEntries += 1;
     }
-    if (asString(payment.type).toLowerCase() === "return") {
+    if (asString(row.type).toLowerCase() === "return") {
       returnPaymentsImpact += amount;
+    }
+
+    registerTodayOperation(
+      "payment",
+      {
+        id: referenceId,
+        type: `payment:${asString(row.type) || "entry"}`,
+        executer,
+        date: toOperationDateString(row.date, timestamp),
+        referenceId,
+        amount,
+        currency,
+        details: asString(row.note) || "Payment operation",
+      },
+      timestamp
+    );
+
+    if (rawBuckets && rawTruncated) {
+      pushCapped(
+        rawBuckets.paymentsToday,
+        row,
+        RAW_COLLECTION_LIMIT,
+        () => (rawTruncated.paymentsToday = true)
+      );
     }
   });
 
-  const paymentsNet = paymentsInflow - paymentsOutflow;
-  const paymentsNetBase = paymentsInflowBase - paymentsOutflowBase;
-
-  const transferCostToday = transfersToday.reduce(
-    (sum, transfer) => sum + toNumber(transfer.cost ?? transfer.amount),
-    0
-  );
-  const returnEstimatedValue = returnsToday.reduce(
-    (sum, row) => sum + toNumber(row.returnValue),
-    0
-  );
-  const totalDiscountAmount = discountsToday.reduce((sum, discount) => {
-    const rawAmount = toNumber(discount.amount);
-    return sum + Math.abs(rawAmount);
-  }, 0);
-
-  const customerAttentionRows: AccountAttentionRow[] = customersRaw
-    .map((entry) => asRecord(entry))
-    .map((customer) => {
-      const balance = toNumber(customer.balance);
-      const openAmount = balance < 0 ? Math.abs(balance) : 0;
-      return {
-        id: asString(customer.id),
-        name: asString(customer.name) || "Unknown customer",
-        balance,
-        openAmount,
-      };
-    })
-    .filter((customer) => customer.openAmount > 0)
-    .sort((a, b) => b.openAmount - a.openAmount);
-
-  const supplierAttentionRows: AccountAttentionRow[] = suppliersRaw
-    .map((entry) => asRecord(entry))
-    .map((supplier) => {
-      const balance = toNumber(supplier.balance);
-      const openAmount = balance > 0 ? balance : 0;
-      return {
-        id: asString(supplier.id),
-        name: asString(supplier.name) || "Unknown supplier",
-        balance,
-        openAmount,
-      };
-    })
-    .filter((supplier) => supplier.openAmount > 0)
-    .sort((a, b) => b.openAmount - a.openAmount);
-
-  const openReceivablesTotal = customerAttentionRows.reduce(
-    (sum, row) => sum + row.openAmount,
-    0
-  );
-  const openPayablesTotal = supplierAttentionRows.reduce(
-    (sum, row) => sum + row.openAmount,
-    0
-  );
-
-  const dailyStats = new Map<string, DailyStat>();
-  operations.forEach((operation) => {
-    const timestamp = toTimestamp(operation.date);
+  await processSnapshotRows("returns", (row, key) => {
+    const timestamp =
+      parseTimestampLoose(row.createdDate) || parseTimestampLoose(row.date);
     if (timestamp <= 0) {
+      invalidDateRecords += 1;
       return;
     }
 
-    const key = toDateKey(timestamp, timezone);
-    if (!dailyStats.has(key)) {
-      dailyStats.set(key, { operations: 0, returns: 0, paymentNet: 0 });
+    const dateKey = toDateKey(timestamp, timezone);
+    registerDailyOperation(dateKey, "return");
+
+    if (dateKey !== todayDateKey) {
+      return;
     }
 
-    const stat = dailyStats.get(key)!;
-    stat.operations += 1;
+    returnsTodayCount += 1;
+    returnEstimatedValue += toNumber(row.returnValue);
+    const warehouse = asString(row.warehouse);
+    const executer = normalizeExecuter(row);
+    const referenceId = asString(row.id) || asString(row.referenceId) || key || "-";
+    const amount = toNumber(row.returnValue);
 
-    const category = toOperationCategory(operation.type);
-    if (category === "return") {
-      stat.returns += 1;
-    }
-    if (category === "payment") {
-      stat.paymentNet += toNumber(operation.amount);
+    registerTodayOperation(
+      "return",
+      {
+        id: referenceId,
+        type: asString(row.type) || "return",
+        executer,
+        date: toOperationDateString(row.createdDate || row.date, timestamp),
+        referenceId,
+        amount,
+        currency: asString(row.currency),
+        details: `${asString(row.productCode) || "item"} qty:${toNumber(row.qty)}`,
+      },
+      timestamp,
+      warehouse ? [warehouse] : []
+    );
+
+    if (rawBuckets && rawTruncated) {
+      pushCapped(
+        rawBuckets.returnsToday,
+        row,
+        RAW_COLLECTION_LIMIT,
+        () => (rawTruncated.returnsToday = true)
+      );
     }
   });
 
+  await processSnapshotRows("warehouseTransfers", (row, key) => {
+    const timestamp =
+      (typeof row.createdAt === "number" ? toNumber(row.createdAt) : 0) ||
+      parseTimestampLoose(row.date);
+
+    if (timestamp <= 0) {
+      invalidDateRecords += 1;
+      return;
+    }
+
+    const dateKey = toDateKey(timestamp, timezone);
+    registerDailyOperation(dateKey, "transfer");
+
+    if (dateKey !== todayDateKey) {
+      return;
+    }
+
+    transfersTodayCount += 1;
+    transferCostToday += toNumber(row.cost ?? row.amount);
+    const executer = normalizeExecuter(row);
+    const referenceId =
+      asString(row.transferId) || asString(row.referenceId) || key || "-";
+    const fromWarehouse = asString(row.fromWarehouse);
+    const toWarehouse = asString(row.toWarehouse);
+
+    registerTodayOperation(
+      "transfer",
+      {
+        id: referenceId,
+        type: "warehouse_transfer",
+        executer,
+        date: toOperationDateString(row.createdAt || row.date, timestamp),
+        referenceId,
+        amount: toNumber(row.cost ?? row.amount),
+        currency: asString(row.currency),
+        details: `${asString(row.productName)} ${fromWarehouse} -> ${toWarehouse}`.trim(),
+      },
+      timestamp,
+      [fromWarehouse, toWarehouse].filter(Boolean)
+    );
+
+    if (rawBuckets && rawTruncated) {
+      pushCapped(
+        rawBuckets.transfersToday,
+        row,
+        RAW_COLLECTION_LIMIT,
+        () => (rawTruncated.transfersToday = true)
+      );
+    }
+  });
+
+  await processSnapshotRows("discountOperations", (row, key) => {
+    const timestamp = parseTimestampLoose(row.date);
+    if (timestamp <= 0) {
+      invalidDateRecords += 1;
+      return;
+    }
+
+    const dateKey = toDateKey(timestamp, timezone);
+    registerDailyOperation(dateKey, "discount");
+
+    if (dateKey !== todayDateKey) {
+      return;
+    }
+
+    discountsTodayCount += 1;
+    totalDiscountAmount += Math.abs(toNumber(row.amount));
+    const executer = normalizeExecuter(row);
+    const referenceId = asString(row.referenceId) || asString(row.id) || key || "-";
+
+    registerTodayOperation(
+      "discount",
+      {
+        id: asString(row.id) || referenceId,
+        type: "after_sell_discount",
+        executer,
+        date: toOperationDateString(row.date, timestamp),
+        referenceId,
+        amount: toNumber(row.amount),
+        currency: asString(row.currency),
+        details:
+          asString(row.details) ||
+          `After-sell discount for sell ${asString(row.referenceId)}`,
+      },
+      timestamp
+    );
+
+    if (rawBuckets && rawTruncated) {
+      pushCapped(
+        rawBuckets.discountsToday,
+        row,
+        RAW_COLLECTION_LIMIT,
+        () => (rawTruncated.discountsToday = true)
+      );
+    }
+  });
+
+  await processSnapshotRows("customer", (row) => {
+    const balance = toNumber(row.balance);
+    const openAmount = balance < 0 ? Math.abs(balance) : 0;
+    if (openAmount <= 0) {
+      return;
+    }
+
+    openReceivablesTotal += openAmount;
+    customersWithOpenBalance += 1;
+    pushTopAccount(topCustomers, {
+      id: asString(row.id),
+      name: asString(row.name) || "Unknown customer",
+      balance,
+      openAmount,
+    });
+  });
+
+  await processSnapshotRows("supplier", (row) => {
+    const balance = toNumber(row.balance);
+    const openAmount = balance > 0 ? balance : 0;
+    if (openAmount <= 0) {
+      return;
+    }
+
+    openPayablesTotal += openAmount;
+    suppliersWithOpenBalance += 1;
+    pushTopAccount(topSuppliers, {
+      id: asString(row.id),
+      name: asString(row.name) || "Unknown supplier",
+      balance,
+      openAmount,
+    });
+  });
+
   const previousDateKeys = Array.from({ length: BASELINE_DAYS }, (_, index) =>
-    toDateKey(Date.now() - (index + 1) * DAY_MS, timezone)
+    toDateKey(nowTimestamp - (index + 1) * DAY_MS, timezone)
   );
 
   const avgPreviousOperations = average(
@@ -473,14 +746,17 @@ export const buildTodayOverview = async (
     previousDateKeys.map((key) => dailyStats.get(key)?.paymentNet || 0)
   );
 
+  const paymentsNet = paymentsInflow - paymentsOutflow;
+  const paymentsNetBase = paymentsInflowBase - paymentsOutflowBase;
+
   const anomalies: OverviewAlert[] = [];
-  const totalInvoicesToday = sellsToday.length + purchasesToday.length;
+  const totalInvoicesToday = sellsTodayCount + purchasesTodayCount;
   const debtInvoicesToday = salesDebtCount + purchasesDebtCount;
   const debtRatio = totalInvoicesToday
     ? debtInvoicesToday / totalInvoicesToday
     : 0;
 
-  if (operationsToday.length === 0) {
+  if (operationsTodayCount === 0) {
     anomalies.push({
       code: "NO_ACTIVITY",
       severity: "critical",
@@ -490,7 +766,7 @@ export const buildTodayOverview = async (
     });
   }
 
-  if (avgPreviousOperations >= 5 && operationsToday.length < avgPreviousOperations * 0.4) {
+  if (avgPreviousOperations >= 5 && operationsTodayCount < avgPreviousOperations * 0.4) {
     anomalies.push({
       code: "ACTIVITY_DROP",
       severity: "warning",
@@ -498,7 +774,7 @@ export const buildTodayOverview = async (
       detail:
         "Today activity is significantly lower than the recent 7-day average.",
       metrics: {
-        todayOperations: operationsToday.length,
+        todayOperations: operationsTodayCount,
         baselineAverage: Number(avgPreviousOperations.toFixed(2)),
       },
     });
@@ -521,8 +797,8 @@ export const buildTodayOverview = async (
 
   if (
     (avgPreviousReturns > 0 &&
-      returnsToday.length >= Math.max(3, Math.ceil(avgPreviousReturns * 2))) ||
-    (avgPreviousReturns === 0 && returnsToday.length >= 4)
+      returnsTodayCount >= Math.max(3, Math.ceil(avgPreviousReturns * 2))) ||
+    (avgPreviousReturns === 0 && returnsTodayCount >= 4)
   ) {
     anomalies.push({
       code: "RETURN_SPIKE",
@@ -531,7 +807,7 @@ export const buildTodayOverview = async (
       detail:
         "Return activity today is significantly above the recent daily average.",
       metrics: {
-        todayReturns: returnsToday.length,
+        todayReturns: returnsTodayCount,
         baselineAverage: Number(avgPreviousReturns.toFixed(2)),
       },
     });
@@ -551,7 +827,7 @@ export const buildTodayOverview = async (
     });
   }
 
-  const topCustomer = customerAttentionRows[0];
+  const topCustomer = topCustomers[0];
   if (
     topCustomer &&
     openReceivablesTotal > 0 &&
@@ -593,10 +869,15 @@ export const buildTodayOverview = async (
     .slice(0, 5)
     .map(([warehouse, activityCount]) => ({ warehouse, activityCount }));
 
+  const operationSample = sampleOperationBuffer
+    .sort((a, b) => b._timestamp - a._timestamp)
+    .slice(0, includeRaw ? 100 : 20)
+    .map(({ _timestamp, ...row }) => row);
+
   const highlights: string[] = [];
-  if (operationsToday.length > 0) {
+  if (operationsTodayCount > 0) {
     highlights.push(
-      `${operationsToday.length} operations were recorded today across ${warehouseCounts.size} active warehouses.`
+      `${operationsTodayCount} operations were recorded today across ${warehouseCounts.size} active warehouses.`
     );
     highlights.push(
       `Sales totaled ${salesValueToday.toFixed(2)} while purchases totaled ${purchaseValueToday.toFixed(2)}.`
@@ -621,12 +902,12 @@ export const buildTodayOverview = async (
       "Follow up debt-based invoices created today and confirm expected collection/payment dates."
     );
   }
-  if (customerAttentionRows.length > 0) {
+  if (customersWithOpenBalance > 0) {
     recommendedActions.push(
       "Prioritize receivables follow-up with the top outstanding customers."
     );
   }
-  if (supplierAttentionRows.length > 0) {
+  if (suppliersWithOpenBalance > 0) {
     recommendedActions.push(
       "Review supplier payables and schedule the next payment batch to avoid pressure on supply."
     );
@@ -636,7 +917,7 @@ export const buildTodayOverview = async (
       "Audit today return operations by reason and product to identify potential quality or handling issues."
     );
   }
-  if (operationsToday.length === 0) {
+  if (operationsTodayCount === 0) {
     recommendedActions.push(
       "Verify branch/system data-entry pipelines if business activity happened but no records are visible."
     );
@@ -647,9 +928,7 @@ export const buildTodayOverview = async (
     );
   }
 
-  const todayOperationSampleLimit = includeRaw ? 100 : 20;
-
-  const response = {
+  return {
     meta: {
       generatedAt,
       timezone,
@@ -667,29 +946,29 @@ export const buildTodayOverview = async (
       },
     },
     operationalTotals: {
-      totalOperationsToday: operationsToday.length,
+      totalOperationsToday: operationsTodayCount,
       operationsByCategory: categoryCounts,
       activeExecuters: executerCounts.size,
       activeWarehouses: warehouseCounts.size,
       invoicesToday: {
-        sells: sellsToday.length,
-        purchases: purchasesToday.length,
+        sells: sellsTodayCount,
+        purchases: purchasesTodayCount,
       },
-      returnsRecorded: returnsToday.length,
-      paymentsRecorded: paymentsToday.length,
-      transferOperations: transfersToday.length,
-      discountOperations: discountsToday.length,
+      returnsRecorded: returnsTodayCount,
+      paymentsRecorded: paymentsTodayCount,
+      transferOperations: transfersTodayCount,
+      discountOperations: discountsTodayCount,
     },
     completedToday: {
       sales: {
-        totalInvoices: sellsToday.length,
+        totalInvoices: sellsTodayCount,
         cashInvoices: salesCashCount,
         partialInvoices: salesPartCount,
         debtInvoices: salesDebtCount,
         valueTotal: Number(salesValueToday.toFixed(2)),
       },
       purchases: {
-        totalInvoices: purchasesToday.length,
+        totalInvoices: purchasesTodayCount,
         cashInvoices: purchasesCashCount,
         partialInvoices: purchasesPartCount,
         debtInvoices: purchasesDebtCount,
@@ -710,13 +989,13 @@ export const buildTodayOverview = async (
       },
       receivables: {
         total: Number(openReceivablesTotal.toFixed(2)),
-        customersWithOpenBalance: customerAttentionRows.length,
-        topCustomers: customerAttentionRows.slice(0, 5),
+        customersWithOpenBalance,
+        topCustomers,
       },
       payables: {
         total: Number(openPayablesTotal.toFixed(2)),
-        suppliersWithOpenBalance: supplierAttentionRows.length,
-        topSuppliers: supplierAttentionRows.slice(0, 5),
+        suppliersWithOpenBalance,
+        topSuppliers,
       },
     },
     financialActivity: {
@@ -730,26 +1009,26 @@ export const buildTodayOverview = async (
         byCurrency: paymentsByCurrency,
       },
       sales: {
-        invoiceCount: sellsToday.length,
+        invoiceCount: sellsTodayCount,
         total: Number(salesValueToday.toFixed(2)),
         totalBase: Number(salesValueBaseToday.toFixed(2)),
       },
       purchases: {
-        invoiceCount: purchasesToday.length,
+        invoiceCount: purchasesTodayCount,
         total: Number(purchaseValueToday.toFixed(2)),
         totalBase: Number(purchaseValueBaseToday.toFixed(2)),
       },
       returns: {
-        count: returnsToday.length,
+        count: returnsTodayCount,
         estimatedValue: Number(returnEstimatedValue.toFixed(2)),
         paymentImpact: Number(returnPaymentsImpact.toFixed(2)),
       },
       transfers: {
-        count: transfersToday.length,
+        count: transfersTodayCount,
         transferCost: Number(transferCostToday.toFixed(2)),
       },
       discounts: {
-        count: discountsToday.length,
+        count: discountsTodayCount,
         totalDiscountAmount: Number(totalDiscountAmount.toFixed(2)),
       },
     },
@@ -759,20 +1038,13 @@ export const buildTodayOverview = async (
     supportingData: {
       topExecutersToday,
       topWarehousesToday,
-      operationSample: operationsToday.slice(0, todayOperationSampleLimit),
-      raw: includeRaw
+      operationSample,
+      raw: rawBuckets
         ? {
-            operationsToday,
-            purchasesToday,
-            sellsToday,
-            paymentsToday,
-            returnsToday,
-            transfersToday,
-            discountsToday,
+            ...rawBuckets,
+            truncated: rawTruncated,
           }
         : undefined,
     },
   };
-
-  return response;
 };
