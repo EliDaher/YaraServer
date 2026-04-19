@@ -7,4 +7,5 @@ const express_1 = __importDefault(require("express"));
 const reports_controller_1 = require("../controllers/reports.controller");
 const router = express_1.default.Router();
 router.get("/today-overview", reports_controller_1.getTodayOverview);
+router.get("/today-overview-v2", reports_controller_1.getTodayOverviewV2);
 exports.default = router;

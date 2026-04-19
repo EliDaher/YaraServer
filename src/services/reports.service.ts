@@ -79,6 +79,13 @@ export type TodayOverviewOptions = {
   timezone?: string;
 };
 
+export type TodayOverviewV2Options = {
+  timezone?: string;
+  details?: boolean;
+};
+
+type V2Status = "good" | "watch" | "critical";
+
 const asRecord = (value: unknown): Record<string, any> =>
   value && typeof value === "object" ? (value as Record<string, any>) : {};
 
@@ -89,6 +96,8 @@ const toNumber = (value: unknown) => {
   const parsed = Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
 };
+
+const n2 = (value: unknown) => Number(toNumber(value).toFixed(2));
 
 const parseTimestampLoose = (value: unknown): number => {
   if (typeof value === "number") {
@@ -1047,4 +1056,204 @@ export const buildTodayOverview = async (
         : undefined,
     },
   };
+};
+
+const anomalyArabicTitle = (code: string, fallback: string): string => {
+  switch (code) {
+    case "NO_ACTIVITY":
+      return "لا يوجد نشاط مسجل اليوم";
+    case "ACTIVITY_DROP":
+      return "انخفاض ملحوظ في النشاط اليومي";
+    case "DEBT_HEAVY_DAY":
+      return "ارتفاع فواتير الدين اليوم";
+    case "RETURN_SPIKE":
+      return "ارتفاع غير معتاد في المرتجعات";
+    case "CASHFLOW_DROP":
+      return "تراجع صافي التدفق النقدي";
+    case "RECEIVABLE_CONCENTRATION":
+      return "تركز الذمم المدينة لدى عميل واحد";
+    case "DATA_QUALITY_DATES":
+      return "مشكلة جودة بيانات في التواريخ";
+    default:
+      return fallback;
+  }
+};
+
+const anomalyArabicDetail = (code: string): string => {
+  switch (code) {
+    case "NO_ACTIVITY":
+      return "لم يتم تسجيل أي عمليات تشغيلية اليوم، ويجب التأكد من حركة الإدخال الفعلية.";
+    case "ACTIVITY_DROP":
+      return "حجم العمليات اليوم أقل من المعدل المعتاد مقارنة بآخر أسبوع.";
+    case "DEBT_HEAVY_DAY":
+      return "نسبة الفواتير المؤجلة مرتفعة وتحتاج متابعة تحصيل وسداد.";
+    case "RETURN_SPIKE":
+      return "المرتجعات أعلى من الطبيعي، ويُنصح بمراجعة أسباب الإرجاع.";
+    case "CASHFLOW_DROP":
+      return "صافي التدفق النقدي أقل من المستوى المتوقع مقارنة بالاتجاه السابق.";
+    case "RECEIVABLE_CONCENTRATION":
+      return "جزء كبير من الذمم المدينة مرتبط بعميل واحد، ما يزيد مخاطر التحصيل.";
+    case "DATA_QUALITY_DATES":
+      return "بعض السجلات تحتوي تواريخ غير صالحة وتم استبعادها من حسابات اليوم.";
+    default:
+      return "تم اكتشاف مؤشر يحتاج متابعة تشغيلية.";
+  }
+};
+
+const resolveV2Status = (anomalies: Array<{ severity: string }>): V2Status => {
+  if (anomalies.some((anomaly) => anomaly.severity === "critical")) {
+    return "critical";
+  }
+  if (anomalies.some((anomaly) => anomaly.severity === "warning")) {
+    return "watch";
+  }
+  return "good";
+};
+
+const headlineByStatus = (status: V2Status): string => {
+  if (status === "critical") {
+    return "ملخص اليوم: يوجد وضع حرج يتطلب تدخل إداري فوري.";
+  }
+  if (status === "watch") {
+    return "ملخص اليوم: الأداء مقبول مع مؤشرات تستدعي المتابعة.";
+  }
+  return "ملخص اليوم: الأداء مستقر والعمليات ضمن الحدود المتوقعة.";
+};
+
+export const buildTodayOverviewV2 = async (
+  options: TodayOverviewV2Options = {}
+) => {
+  const details = Boolean(options.details);
+  const legacy: any = await buildTodayOverview({
+    includeRaw: false,
+    timezone: options.timezone || DEFAULT_TIMEZONE,
+  });
+
+  const salesTotalInvoices = toNumber(legacy?.completedToday?.sales?.totalInvoices);
+  const salesDebtInvoices = toNumber(legacy?.completedToday?.sales?.debtInvoices);
+  const purchaseTotalInvoices = toNumber(
+    legacy?.completedToday?.purchases?.totalInvoices
+  );
+  const purchaseDebtInvoices = toNumber(
+    legacy?.completedToday?.purchases?.debtInvoices
+  );
+  const totalInvoices = salesTotalInvoices + purchaseTotalInvoices;
+  const debtInvoices = salesDebtInvoices + purchaseDebtInvoices;
+  const debtRatioPct = totalInvoices > 0 ? (debtInvoices / totalInvoices) * 100 : 0;
+
+  const status = resolveV2Status(Array.isArray(legacy?.anomalies) ? legacy.anomalies : []);
+  const headline_ar = headlineByStatus(status);
+
+  const alerts = (Array.isArray(legacy?.anomalies) ? legacy.anomalies : [])
+    .slice(0, 3)
+    .map((anomaly: any) => ({
+      code: asString(anomaly?.code),
+      severity: asString(anomaly?.severity) || "info",
+      title_ar: anomalyArabicTitle(asString(anomaly?.code), asString(anomaly?.title)),
+      detail_ar: anomalyArabicDetail(asString(anomaly?.code)),
+    }));
+
+  const priorities: Array<{ title_ar: string; value: number }> = [];
+  priorities.push({
+    title_ar: "إجمالي الذمم المدينة المفتوحة",
+    value: n2(legacy?.pendingAndBacklog?.receivables?.total),
+  });
+  priorities.push({
+    title_ar: "إجمالي الذمم الدائنة المفتوحة",
+    value: n2(legacy?.pendingAndBacklog?.payables?.total),
+  });
+  priorities.push({
+    title_ar: "نسبة الفواتير المؤجلة اليوم (%)",
+    value: n2(debtRatioPct),
+  });
+
+  const nextActions: string[] = [];
+  if (debtInvoices > 0) {
+    nextActions.push("متابعة فواتير الدين الجديدة وتثبيت مواعيد التحصيل والسداد.");
+  }
+  if (toNumber(legacy?.pendingAndBacklog?.receivables?.total) > 0) {
+    nextActions.push("بدء تواصل مركز مع أعلى العملاء مديونية اليوم.");
+  }
+  if (alerts.some((alert: { code: string }) => alert.code === "RETURN_SPIKE")) {
+    nextActions.push("مراجعة أسباب المرتجعات حسب المنتج والمستودع قبل إغلاق اليوم.");
+  }
+  if (!nextActions.length) {
+    nextActions.push("لا توجد مخاطر كبيرة حالياً، يُكتفى بالمتابعة اليومية الروتينية.");
+  }
+
+  const response: any = {
+    meta: {
+      version: "v2",
+      date: asString(legacy?.meta?.todayDate),
+      timezone: asString(legacy?.meta?.timezone) || DEFAULT_TIMEZONE,
+      generatedAt: asString(legacy?.meta?.generatedAt),
+    },
+    summary: {
+      headline_ar,
+      status,
+    },
+    kpis: {
+      ops: toNumber(legacy?.operationalTotals?.totalOperationsToday),
+      salesTotal: n2(legacy?.financialActivity?.sales?.total),
+      purchasesTotal: n2(legacy?.financialActivity?.purchases?.total),
+      netCashflow: n2(legacy?.financialActivity?.payments?.net),
+      receivables: n2(legacy?.pendingAndBacklog?.receivables?.total),
+      payables: n2(legacy?.pendingAndBacklog?.payables?.total),
+      returnsCount: toNumber(legacy?.financialActivity?.returns?.count),
+      debtInvoices,
+      debtRatioPct: n2(debtRatioPct),
+    },
+    completion: {
+      sales: {
+        total: salesTotalInvoices,
+        cash: toNumber(legacy?.completedToday?.sales?.cashInvoices),
+        partial: toNumber(legacy?.completedToday?.sales?.partialInvoices),
+        debt: salesDebtInvoices,
+        cashPct:
+          salesTotalInvoices > 0
+            ? n2((toNumber(legacy?.completedToday?.sales?.cashInvoices) / salesTotalInvoices) * 100)
+            : 0,
+        debtPct:
+          salesTotalInvoices > 0 ? n2((salesDebtInvoices / salesTotalInvoices) * 100) : 0,
+      },
+      purchases: {
+        total: purchaseTotalInvoices,
+        cash: toNumber(legacy?.completedToday?.purchases?.cashInvoices),
+        partial: toNumber(legacy?.completedToday?.purchases?.partialInvoices),
+        debt: purchaseDebtInvoices,
+        cashPct:
+          purchaseTotalInvoices > 0
+            ? n2(
+                (toNumber(legacy?.completedToday?.purchases?.cashInvoices) /
+                  purchaseTotalInvoices) *
+                  100
+              )
+            : 0,
+        debtPct:
+          purchaseTotalInvoices > 0
+            ? n2((purchaseDebtInvoices / purchaseTotalInvoices) * 100)
+            : 0,
+      },
+    },
+    alerts,
+    priorities: priorities
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 3),
+    nextActions: nextActions.slice(0, 3),
+  };
+
+  if (details) {
+    response.diagnostics = {
+      topExecuters: (legacy?.supportingData?.topExecutersToday || []).slice(0, 5),
+      topWarehouses: (legacy?.supportingData?.topWarehousesToday || []).slice(0, 5),
+      topCustomers: (legacy?.pendingAndBacklog?.receivables?.topCustomers || []).slice(0, 5),
+      topSuppliers: (legacy?.pendingAndBacklog?.payables?.topSuppliers || []).slice(0, 5),
+      examples: (legacy?.supportingData?.operationSample || []).slice(0, 10),
+      dataQuality: {
+        invalidDateRecords: toNumber(legacy?.meta?.dataQuality?.invalidDateRecords),
+      },
+    };
+  }
+
+  return response;
 };

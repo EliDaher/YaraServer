@@ -20,7 +20,7 @@ var __rest = (this && this.__rest) || function (s, e) {
     return t;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.buildTodayOverview = void 0;
+exports.buildTodayOverviewV2 = exports.buildTodayOverview = void 0;
 const database_1 = require("firebase/database");
 const firebaseConfig_1 = require("../firebaseConfig");
 const DEFAULT_TIMEZONE = "Asia/Damascus";
@@ -34,6 +34,7 @@ const toNumber = (value) => {
     const parsed = Number(value !== null && value !== void 0 ? value : 0);
     return Number.isFinite(parsed) ? parsed : 0;
 };
+const n2 = (value) => Number(toNumber(value).toFixed(2));
 const parseTimestampLoose = (value) => {
     if (typeof value === "number") {
         return Number.isFinite(value) ? value : 0;
@@ -754,3 +755,180 @@ const buildTodayOverview = (...args_1) => __awaiter(void 0, [...args_1], void 0,
     };
 });
 exports.buildTodayOverview = buildTodayOverview;
+const anomalyArabicTitle = (code, fallback) => {
+    switch (code) {
+        case "NO_ACTIVITY":
+            return "لا يوجد نشاط مسجل اليوم";
+        case "ACTIVITY_DROP":
+            return "انخفاض ملحوظ في النشاط اليومي";
+        case "DEBT_HEAVY_DAY":
+            return "ارتفاع فواتير الدين اليوم";
+        case "RETURN_SPIKE":
+            return "ارتفاع غير معتاد في المرتجعات";
+        case "CASHFLOW_DROP":
+            return "تراجع صافي التدفق النقدي";
+        case "RECEIVABLE_CONCENTRATION":
+            return "تركز الذمم المدينة لدى عميل واحد";
+        case "DATA_QUALITY_DATES":
+            return "مشكلة جودة بيانات في التواريخ";
+        default:
+            return fallback;
+    }
+};
+const anomalyArabicDetail = (code) => {
+    switch (code) {
+        case "NO_ACTIVITY":
+            return "لم يتم تسجيل أي عمليات تشغيلية اليوم، ويجب التأكد من حركة الإدخال الفعلية.";
+        case "ACTIVITY_DROP":
+            return "حجم العمليات اليوم أقل من المعدل المعتاد مقارنة بآخر أسبوع.";
+        case "DEBT_HEAVY_DAY":
+            return "نسبة الفواتير المؤجلة مرتفعة وتحتاج متابعة تحصيل وسداد.";
+        case "RETURN_SPIKE":
+            return "المرتجعات أعلى من الطبيعي، ويُنصح بمراجعة أسباب الإرجاع.";
+        case "CASHFLOW_DROP":
+            return "صافي التدفق النقدي أقل من المستوى المتوقع مقارنة بالاتجاه السابق.";
+        case "RECEIVABLE_CONCENTRATION":
+            return "جزء كبير من الذمم المدينة مرتبط بعميل واحد، ما يزيد مخاطر التحصيل.";
+        case "DATA_QUALITY_DATES":
+            return "بعض السجلات تحتوي تواريخ غير صالحة وتم استبعادها من حسابات اليوم.";
+        default:
+            return "تم اكتشاف مؤشر يحتاج متابعة تشغيلية.";
+    }
+};
+const resolveV2Status = (anomalies) => {
+    if (anomalies.some((anomaly) => anomaly.severity === "critical")) {
+        return "critical";
+    }
+    if (anomalies.some((anomaly) => anomaly.severity === "warning")) {
+        return "watch";
+    }
+    return "good";
+};
+const headlineByStatus = (status) => {
+    if (status === "critical") {
+        return "ملخص اليوم: يوجد وضع حرج يتطلب تدخل إداري فوري.";
+    }
+    if (status === "watch") {
+        return "ملخص اليوم: الأداء مقبول مع مؤشرات تستدعي المتابعة.";
+    }
+    return "ملخص اليوم: الأداء مستقر والعمليات ضمن الحدود المتوقعة.";
+};
+const buildTodayOverviewV2 = (...args_1) => __awaiter(void 0, [...args_1], void 0, function* (options = {}) {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26;
+    const details = Boolean(options.details);
+    const legacy = yield (0, exports.buildTodayOverview)({
+        includeRaw: false,
+        timezone: options.timezone || DEFAULT_TIMEZONE,
+    });
+    const salesTotalInvoices = toNumber((_b = (_a = legacy === null || legacy === void 0 ? void 0 : legacy.completedToday) === null || _a === void 0 ? void 0 : _a.sales) === null || _b === void 0 ? void 0 : _b.totalInvoices);
+    const salesDebtInvoices = toNumber((_d = (_c = legacy === null || legacy === void 0 ? void 0 : legacy.completedToday) === null || _c === void 0 ? void 0 : _c.sales) === null || _d === void 0 ? void 0 : _d.debtInvoices);
+    const purchaseTotalInvoices = toNumber((_f = (_e = legacy === null || legacy === void 0 ? void 0 : legacy.completedToday) === null || _e === void 0 ? void 0 : _e.purchases) === null || _f === void 0 ? void 0 : _f.totalInvoices);
+    const purchaseDebtInvoices = toNumber((_h = (_g = legacy === null || legacy === void 0 ? void 0 : legacy.completedToday) === null || _g === void 0 ? void 0 : _g.purchases) === null || _h === void 0 ? void 0 : _h.debtInvoices);
+    const totalInvoices = salesTotalInvoices + purchaseTotalInvoices;
+    const debtInvoices = salesDebtInvoices + purchaseDebtInvoices;
+    const debtRatioPct = totalInvoices > 0 ? (debtInvoices / totalInvoices) * 100 : 0;
+    const status = resolveV2Status(Array.isArray(legacy === null || legacy === void 0 ? void 0 : legacy.anomalies) ? legacy.anomalies : []);
+    const headline_ar = headlineByStatus(status);
+    const alerts = (Array.isArray(legacy === null || legacy === void 0 ? void 0 : legacy.anomalies) ? legacy.anomalies : [])
+        .slice(0, 3)
+        .map((anomaly) => ({
+        code: asString(anomaly === null || anomaly === void 0 ? void 0 : anomaly.code),
+        severity: asString(anomaly === null || anomaly === void 0 ? void 0 : anomaly.severity) || "info",
+        title_ar: anomalyArabicTitle(asString(anomaly === null || anomaly === void 0 ? void 0 : anomaly.code), asString(anomaly === null || anomaly === void 0 ? void 0 : anomaly.title)),
+        detail_ar: anomalyArabicDetail(asString(anomaly === null || anomaly === void 0 ? void 0 : anomaly.code)),
+    }));
+    const priorities = [];
+    priorities.push({
+        title_ar: "إجمالي الذمم المدينة المفتوحة",
+        value: n2((_k = (_j = legacy === null || legacy === void 0 ? void 0 : legacy.pendingAndBacklog) === null || _j === void 0 ? void 0 : _j.receivables) === null || _k === void 0 ? void 0 : _k.total),
+    });
+    priorities.push({
+        title_ar: "إجمالي الذمم الدائنة المفتوحة",
+        value: n2((_m = (_l = legacy === null || legacy === void 0 ? void 0 : legacy.pendingAndBacklog) === null || _l === void 0 ? void 0 : _l.payables) === null || _m === void 0 ? void 0 : _m.total),
+    });
+    priorities.push({
+        title_ar: "نسبة الفواتير المؤجلة اليوم (%)",
+        value: n2(debtRatioPct),
+    });
+    const nextActions = [];
+    if (debtInvoices > 0) {
+        nextActions.push("متابعة فواتير الدين الجديدة وتثبيت مواعيد التحصيل والسداد.");
+    }
+    if (toNumber((_p = (_o = legacy === null || legacy === void 0 ? void 0 : legacy.pendingAndBacklog) === null || _o === void 0 ? void 0 : _o.receivables) === null || _p === void 0 ? void 0 : _p.total) > 0) {
+        nextActions.push("بدء تواصل مركز مع أعلى العملاء مديونية اليوم.");
+    }
+    if (alerts.some((alert) => alert.code === "RETURN_SPIKE")) {
+        nextActions.push("مراجعة أسباب المرتجعات حسب المنتج والمستودع قبل إغلاق اليوم.");
+    }
+    if (!nextActions.length) {
+        nextActions.push("لا توجد مخاطر كبيرة حالياً، يُكتفى بالمتابعة اليومية الروتينية.");
+    }
+    const response = {
+        meta: {
+            version: "v2",
+            date: asString((_q = legacy === null || legacy === void 0 ? void 0 : legacy.meta) === null || _q === void 0 ? void 0 : _q.todayDate),
+            timezone: asString((_r = legacy === null || legacy === void 0 ? void 0 : legacy.meta) === null || _r === void 0 ? void 0 : _r.timezone) || DEFAULT_TIMEZONE,
+            generatedAt: asString((_s = legacy === null || legacy === void 0 ? void 0 : legacy.meta) === null || _s === void 0 ? void 0 : _s.generatedAt),
+        },
+        summary: {
+            headline_ar,
+            status,
+        },
+        kpis: {
+            ops: toNumber((_t = legacy === null || legacy === void 0 ? void 0 : legacy.operationalTotals) === null || _t === void 0 ? void 0 : _t.totalOperationsToday),
+            salesTotal: n2((_v = (_u = legacy === null || legacy === void 0 ? void 0 : legacy.financialActivity) === null || _u === void 0 ? void 0 : _u.sales) === null || _v === void 0 ? void 0 : _v.total),
+            purchasesTotal: n2((_x = (_w = legacy === null || legacy === void 0 ? void 0 : legacy.financialActivity) === null || _w === void 0 ? void 0 : _w.purchases) === null || _x === void 0 ? void 0 : _x.total),
+            netCashflow: n2((_z = (_y = legacy === null || legacy === void 0 ? void 0 : legacy.financialActivity) === null || _y === void 0 ? void 0 : _y.payments) === null || _z === void 0 ? void 0 : _z.net),
+            receivables: n2((_1 = (_0 = legacy === null || legacy === void 0 ? void 0 : legacy.pendingAndBacklog) === null || _0 === void 0 ? void 0 : _0.receivables) === null || _1 === void 0 ? void 0 : _1.total),
+            payables: n2((_3 = (_2 = legacy === null || legacy === void 0 ? void 0 : legacy.pendingAndBacklog) === null || _2 === void 0 ? void 0 : _2.payables) === null || _3 === void 0 ? void 0 : _3.total),
+            returnsCount: toNumber((_5 = (_4 = legacy === null || legacy === void 0 ? void 0 : legacy.financialActivity) === null || _4 === void 0 ? void 0 : _4.returns) === null || _5 === void 0 ? void 0 : _5.count),
+            debtInvoices,
+            debtRatioPct: n2(debtRatioPct),
+        },
+        completion: {
+            sales: {
+                total: salesTotalInvoices,
+                cash: toNumber((_7 = (_6 = legacy === null || legacy === void 0 ? void 0 : legacy.completedToday) === null || _6 === void 0 ? void 0 : _6.sales) === null || _7 === void 0 ? void 0 : _7.cashInvoices),
+                partial: toNumber((_9 = (_8 = legacy === null || legacy === void 0 ? void 0 : legacy.completedToday) === null || _8 === void 0 ? void 0 : _8.sales) === null || _9 === void 0 ? void 0 : _9.partialInvoices),
+                debt: salesDebtInvoices,
+                cashPct: salesTotalInvoices > 0
+                    ? n2((toNumber((_11 = (_10 = legacy === null || legacy === void 0 ? void 0 : legacy.completedToday) === null || _10 === void 0 ? void 0 : _10.sales) === null || _11 === void 0 ? void 0 : _11.cashInvoices) / salesTotalInvoices) * 100)
+                    : 0,
+                debtPct: salesTotalInvoices > 0 ? n2((salesDebtInvoices / salesTotalInvoices) * 100) : 0,
+            },
+            purchases: {
+                total: purchaseTotalInvoices,
+                cash: toNumber((_13 = (_12 = legacy === null || legacy === void 0 ? void 0 : legacy.completedToday) === null || _12 === void 0 ? void 0 : _12.purchases) === null || _13 === void 0 ? void 0 : _13.cashInvoices),
+                partial: toNumber((_15 = (_14 = legacy === null || legacy === void 0 ? void 0 : legacy.completedToday) === null || _14 === void 0 ? void 0 : _14.purchases) === null || _15 === void 0 ? void 0 : _15.partialInvoices),
+                debt: purchaseDebtInvoices,
+                cashPct: purchaseTotalInvoices > 0
+                    ? n2((toNumber((_17 = (_16 = legacy === null || legacy === void 0 ? void 0 : legacy.completedToday) === null || _16 === void 0 ? void 0 : _16.purchases) === null || _17 === void 0 ? void 0 : _17.cashInvoices) /
+                        purchaseTotalInvoices) *
+                        100)
+                    : 0,
+                debtPct: purchaseTotalInvoices > 0
+                    ? n2((purchaseDebtInvoices / purchaseTotalInvoices) * 100)
+                    : 0,
+            },
+        },
+        alerts,
+        priorities: priorities
+            .sort((a, b) => b.value - a.value)
+            .slice(0, 3),
+        nextActions: nextActions.slice(0, 3),
+    };
+    if (details) {
+        response.diagnostics = {
+            topExecuters: (((_18 = legacy === null || legacy === void 0 ? void 0 : legacy.supportingData) === null || _18 === void 0 ? void 0 : _18.topExecutersToday) || []).slice(0, 5),
+            topWarehouses: (((_19 = legacy === null || legacy === void 0 ? void 0 : legacy.supportingData) === null || _19 === void 0 ? void 0 : _19.topWarehousesToday) || []).slice(0, 5),
+            topCustomers: (((_21 = (_20 = legacy === null || legacy === void 0 ? void 0 : legacy.pendingAndBacklog) === null || _20 === void 0 ? void 0 : _20.receivables) === null || _21 === void 0 ? void 0 : _21.topCustomers) || []).slice(0, 5),
+            topSuppliers: (((_23 = (_22 = legacy === null || legacy === void 0 ? void 0 : legacy.pendingAndBacklog) === null || _22 === void 0 ? void 0 : _22.payables) === null || _23 === void 0 ? void 0 : _23.topSuppliers) || []).slice(0, 5),
+            examples: (((_24 = legacy === null || legacy === void 0 ? void 0 : legacy.supportingData) === null || _24 === void 0 ? void 0 : _24.operationSample) || []).slice(0, 10),
+            dataQuality: {
+                invalidDateRecords: toNumber((_26 = (_25 = legacy === null || legacy === void 0 ? void 0 : legacy.meta) === null || _25 === void 0 ? void 0 : _25.dataQuality) === null || _26 === void 0 ? void 0 : _26.invalidDateRecords),
+            },
+        };
+    }
+    return response;
+});
+exports.buildTodayOverviewV2 = buildTodayOverviewV2;

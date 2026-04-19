@@ -9,9 +9,9 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getTodayOverview = void 0;
+exports.getTodayOverviewV2 = exports.getTodayOverview = void 0;
 const reports_service_1 = require("../services/reports.service");
-const parseIncludeRaw = (value) => {
+const parseBooleanFlag = (value) => {
     if (typeof value !== "string") {
         return false;
     }
@@ -20,9 +20,10 @@ const parseIncludeRaw = (value) => {
 };
 const getTodayOverview = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const includeRaw = parseIncludeRaw(req.query.includeRaw);
+        const includeRaw = parseBooleanFlag(req.query.includeRaw);
         const overview = yield (0, reports_service_1.buildTodayOverview)({ includeRaw });
-        return res.json(overview);
+        const payload = Object.assign(Object.assign({}, overview), { meta: Object.assign(Object.assign({}, overview.meta), { deprecated: true, migrateTo: "/api/reports/today-overview-v2" }) });
+        return res.json(payload);
     }
     catch (error) {
         console.error("Today overview error:", error);
@@ -32,3 +33,17 @@ const getTodayOverview = (req, res) => __awaiter(void 0, void 0, void 0, functio
     }
 });
 exports.getTodayOverview = getTodayOverview;
+const getTodayOverviewV2 = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const details = parseBooleanFlag(req.query.details);
+        const overview = yield (0, reports_service_1.buildTodayOverviewV2)({ details });
+        return res.json(overview);
+    }
+    catch (error) {
+        console.error("Today overview v2 error:", error);
+        return res
+            .status(500)
+            .json({ error: "Failed to generate today work overview v2" });
+    }
+});
+exports.getTodayOverviewV2 = getTodayOverviewV2;
