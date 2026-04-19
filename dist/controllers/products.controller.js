@@ -14,7 +14,7 @@ const database_1 = require("firebase/database");
 const firebaseConfig_1 = require("../firebaseConfig");
 let productsCache = null;
 let lastFetch = 0;
-let compareTime = 120000;
+let compareTime = 45000;
 const fetchReset = () => {
     lastFetch = Date.now() - compareTime;
 };

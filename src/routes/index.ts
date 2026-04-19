@@ -9,6 +9,7 @@ import customersRouter from "./customer.routes";
 import sellsRouter from "./sells.routes";
 import warehousesRouter from "./warehouse.routes";
 import usersRouter from "./users.routes";
+import reportsRouter from "./reports.routes";
 
 
 const router = Router();
@@ -24,5 +25,6 @@ router.use("/customers", customersRouter);
 router.use("/sells", sellsRouter);
 router.use("/warehouses", warehousesRouter);
 router.use("/users", usersRouter);
+router.use("/reports", reportsRouter);
 
 export default router;
