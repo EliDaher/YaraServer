@@ -14,6 +14,7 @@ const uuid_1 = require("uuid");
 const database_1 = require("firebase/database");
 const products_controller_1 = require("./products.controller");
 const firebaseConfig_1 = require("../firebaseConfig");
+const operationDate_1 = require("../utils/operationDate");
 // ✅ الحصول على جميع عمليات الشراء
 const getAllPurchases = (_req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
@@ -31,9 +32,9 @@ exports.getAllPurchases = getAllPurchases;
 // ✅ إنشاء عملية شراء جديدة (API)
 const createPurchase = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { supplierId, products, totalPrice, paymentStatus, remainingDebt, code, warehouse, quantity, payPrice, name, currency, exchangeRate, amount_base, transferCost, } = req.body;
+        const { supplierId, products, totalPrice, paymentStatus, remainingDebt, code, warehouse, quantity, payPrice, name, currency, exchangeRate, amount_base, transferCost, date, } = req.body;
         const id = (0, uuid_1.v4)();
-        const NowDate = new Date().toLocaleString();
+        const operationDate = (0, operationDate_1.resolveOperationDate)(date);
         const purchaseData = {
             id,
             supplierId,
@@ -44,7 +45,7 @@ const createPurchase = (req, res) => __awaiter(void 0, void 0, void 0, function*
             totalPrice,
             paymentStatus,
             remainingDebt,
-            date: NowDate,
+            date: operationDate,
             name,
             currency,
             exchangeRate,
@@ -63,15 +64,16 @@ const createPurchase = (req, res) => __awaiter(void 0, void 0, void 0, function*
     }
     catch (error) {
         console.error("Error creating purchase:", error);
-        res.status(500).json({ error: error.message });
+        const statusCode = (error === null || error === void 0 ? void 0 : error.message) === "Invalid operation date" ? 400 : 500;
+        res.status(statusCode).json({ error: error.message });
     }
 });
 exports.createPurchase = createPurchase;
 // ✅ إنشاء عملية شراء داخلية (بدون استجابة HTTP)
 const createPurchaseInternal = (newPurchase) => __awaiter(void 0, void 0, void 0, function* () {
     const id = (0, uuid_1.v4)();
-    const NowDate = new Date().toLocaleString();
-    const purchaseData = Object.assign(Object.assign({}, newPurchase), { transferCost: Number(newPurchase.transferCost || 0), id, date: NowDate });
+    const operationDate = (0, operationDate_1.resolveOperationDate)(newPurchase.date);
+    const purchaseData = Object.assign(Object.assign({}, newPurchase), { transferCost: Number(newPurchase.transferCost || 0), id, date: operationDate });
     yield (0, database_1.set)((0, database_1.ref)(firebaseConfig_1.database, `purchases/${id}`), purchaseData);
     return purchaseData;
 });

@@ -56,7 +56,7 @@ const createPayment = (req, res) => __awaiter(void 0, void 0, void 0, function* 
         const { newPayment } = req.body;
         const id = (0, uuid_1.v4)();
         const now = new Date().toLocaleString();
-        const payment = Object.assign(Object.assign({}, newPayment), { id, date: now });
+        const payment = Object.assign(Object.assign({}, newPayment), { id, date: newPayment.date || now });
         yield (0, database_1.set)((0, database_1.ref)(firebaseConfig_1.database, `payment/${id}`), payment);
         res.status(201).json(payment);
     }
@@ -70,7 +70,7 @@ exports.createPayment = createPayment;
 const createPaymentInternal = (newPayment) => __awaiter(void 0, void 0, void 0, function* () {
     const id = (0, uuid_1.v4)();
     const now = new Date().toLocaleString();
-    const payment = Object.assign(Object.assign({}, newPayment), { id, date: now });
+    const payment = Object.assign(Object.assign({}, newPayment), { id, date: newPayment.date || now });
     yield (0, database_1.set)((0, database_1.ref)(firebaseConfig_1.database, `payment/${id}`), payment);
     return payment;
 });

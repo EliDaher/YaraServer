@@ -15,5 +15,5 @@ export interface purchase {
     executer?: string,
     paymentStatus: string,
     remainingDebt: number,
-    date: string
+    date?: string
 }

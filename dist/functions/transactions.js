@@ -43,6 +43,7 @@ const handlePurchase = (_a) => __awaiter(void 0, [_a], void 0, function* ({ newP
             exchangeRate: newPurchase.exchangeRate,
             amount_base: -(newPurchase.exchangeRate *
                 (purchaseData.totalPrice - purchaseData.remainingDebt)),
+            date: purchaseData.date,
             executer: normalizedExecuter,
         });
     }
@@ -56,6 +57,7 @@ const handlePurchase = (_a) => __awaiter(void 0, [_a], void 0, function* ({ newP
             currency: newPurchase.currency,
             exchangeRate: newPurchase.exchangeRate,
             amount_base: -(newPurchase.exchangeRate * purchaseData.totalPrice),
+            date: purchaseData.date,
             executer: normalizedExecuter,
         });
     }
@@ -70,6 +72,7 @@ const handlePurchase = (_a) => __awaiter(void 0, [_a], void 0, function* ({ newP
             currency: newPurchase.currency,
             exchangeRate: newPurchase.exchangeRate,
             amount_base: -(newPurchase.exchangeRate * transferCost),
+            date: purchaseData.date,
             executer: normalizedExecuter,
         });
     }
@@ -99,6 +102,7 @@ const handleSell = (_a) => __awaiter(void 0, [_a], void 0, function* ({ newSell,
                 currency: sellData.currency,
                 exchangeRate: sellData.exchangeRate,
                 amount_base: sellData.exchangeRate * sellData.totalPrice,
+                date: sellData.date,
                 executer: normalizedExecuter,
             });
         }
@@ -114,6 +118,7 @@ const handleSell = (_a) => __awaiter(void 0, [_a], void 0, function* ({ newSell,
                 amount_base: sellData.partValue ||
                     sellData.exchangeRate *
                         (sellData.totalPrice - sellData.remainingDebt),
+                date: sellData.date,
                 executer: normalizedExecuter,
             });
         }

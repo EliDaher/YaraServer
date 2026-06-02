@@ -55,7 +55,7 @@ export const createPayment = async (req: Request, res: Response) => {
     const payment: Payment = {
       ...newPayment,
       id,
-      date: now,
+      date: newPayment.date || now,
     };
 
     await set(ref(database, `payment/${id}`), payment);
@@ -77,7 +77,7 @@ export const createPaymentInternal = async (
   const payment: Payment = {
     ...newPayment,
     id,
-    date: now,
+    date: newPayment.date || now,
   };
 
   await set(ref(database, `payment/${id}`), payment);

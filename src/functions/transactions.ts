@@ -74,6 +74,7 @@ export const handlePurchase = async ({
         newPurchase.exchangeRate *
         (purchaseData.totalPrice - purchaseData.remainingDebt)
       ),
+      date: purchaseData.date,
       executer: normalizedExecuter,
     });
   } else if (purchaseData.remainingDebt == 0) {
@@ -86,6 +87,7 @@ export const handlePurchase = async ({
       currency: newPurchase.currency,
       exchangeRate: newPurchase.exchangeRate,
       amount_base: -(newPurchase.exchangeRate * purchaseData.totalPrice),
+      date: purchaseData.date,
       executer: normalizedExecuter,
     });
   } else if (purchaseData.remainingDebt == purchaseData.totalPrice) {
@@ -100,6 +102,7 @@ export const handlePurchase = async ({
       currency: newPurchase.currency,
       exchangeRate: newPurchase.exchangeRate,
       amount_base: -(newPurchase.exchangeRate * transferCost),
+      date: purchaseData.date,
       executer: normalizedExecuter,
     });
   }
@@ -142,6 +145,7 @@ export const handleSell = async ({
         currency: sellData.currency,
         exchangeRate: sellData.exchangeRate,
         amount_base: sellData.exchangeRate * sellData.totalPrice,
+        date: sellData.date,
         executer: normalizedExecuter,
       });
     } else if (sellData.remainingDebt < sellData.totalPrice) {
@@ -157,6 +161,7 @@ export const handleSell = async ({
           sellData.partValue ||
           sellData.exchangeRate *
             (sellData.totalPrice - sellData.remainingDebt),
+        date: sellData.date,
         executer: normalizedExecuter,
       });
     } else if (sellData.remainingDebt == sellData.totalPrice) {

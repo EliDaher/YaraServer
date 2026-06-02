@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from "uuid";
 import { sell } from "../types/sell";
 import { Payment } from "../types/payment";
 import { database } from "../firebaseConfig";
+import { resolveOperationDate } from "../utils/operationDate";
 
 // 🧩 جلب جميع فواتير البيع
 export const getAllSells = async (_req: Request, res: Response) => {
@@ -22,18 +23,22 @@ export const getAllSells = async (_req: Request, res: Response) => {
 export const createSell = async (req: Request, res: Response) => {
   try {
     const id = uuidv4();
-    const NowDate = new Date().toLocaleString();
+    const operationDate = resolveOperationDate(req.body?.date);
 
     const newSell: sell = {
       ...req.body,
       id,
-      date: NowDate,
+      date: operationDate,
     };
 
     await set(ref(database, `sells/${id}`), newSell);
 
     res.json({ message: "✅ تم تسجيل فاتورة البيع", data: newSell });
   } catch (error) {
+    if (error instanceof Error && error.message === "Invalid operation date") {
+      res.status(400).json({ message: error.message });
+      return;
+    }
     console.error("❌ خطأ أثناء إنشاء فاتورة البيع:", error);
     res.status(500).json({ message: "حدث خطأ أثناء إنشاء فاتورة البيع" });
   }
@@ -62,12 +67,12 @@ export const deleteSell = async (req: Request, res: Response) => {
 export const createSellInternal = async (newSell: sell): Promise<sell> => {
   try {
     const id = uuidv4();
-    const NowDate = new Date().toLocaleString();
+    const operationDate = resolveOperationDate(newSell.date);
 
     const sellData: sell = {
       ...newSell,
       id,
-      date: NowDate,
+      date: operationDate,
     };
 
     await set(ref(database, `sells/${id}`), sellData);

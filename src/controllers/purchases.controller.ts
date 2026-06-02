@@ -4,6 +4,7 @@ import { purchase } from "../types/purchase";
 import { ref, get, set, update, remove } from "firebase/database";
 import { createOrUpdateProductInternal } from "./products.controller";
 import { database } from "../firebaseConfig";
+import { resolveOperationDate } from "../utils/operationDate";
 
 // ✅ الحصول على جميع عمليات الشراء
 export const getAllPurchases = async (_req: Request, res: Response) => {
@@ -36,10 +37,11 @@ export const createPurchase = async (req: Request, res: Response) => {
       exchangeRate,
       amount_base,
       transferCost,
+      date,
     } = req.body;
 
     const id = uuidv4();
-    const NowDate = new Date().toLocaleString();
+    const operationDate = resolveOperationDate(date);
 
     const purchaseData: purchase = {
       id,
@@ -51,7 +53,7 @@ export const createPurchase = async (req: Request, res: Response) => {
       totalPrice,
       paymentStatus,
       remainingDebt,
-      date: NowDate,
+      date: operationDate,
       name,
       currency,
       exchangeRate,
@@ -72,7 +74,8 @@ export const createPurchase = async (req: Request, res: Response) => {
     res.json({ message: "✅ تم تسجيل عملية الشراء", data: purchaseData });
   } catch (error: any) {
     console.error("Error creating purchase:", error);
-    res.status(500).json({ error: error.message });
+    const statusCode = error?.message === "Invalid operation date" ? 400 : 500;
+    res.status(statusCode).json({ error: error.message });
   }
 };
 
@@ -81,13 +84,13 @@ export const createPurchaseInternal = async (
   newPurchase: purchase
 ): Promise<purchase> => {
   const id = uuidv4();
-  const NowDate = new Date().toLocaleString();
+  const operationDate = resolveOperationDate(newPurchase.date);
 
   const purchaseData: purchase = {
     ...newPurchase,
     transferCost: Number(newPurchase.transferCost || 0),
     id,
-    date: NowDate,
+    date: operationDate,
   };
 
   await set(ref(database, `purchases/${id}`), purchaseData);

@@ -13,6 +13,7 @@ exports.addAfterSellDiscountInternal = exports.getSalesByWarehouseAndDate = expo
 const database_1 = require("firebase/database");
 const uuid_1 = require("uuid");
 const firebaseConfig_1 = require("../firebaseConfig");
+const operationDate_1 = require("../utils/operationDate");
 // 🧩 جلب جميع فواتير البيع
 const getAllSells = (_req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
@@ -29,14 +30,19 @@ const getAllSells = (_req, res) => __awaiter(void 0, void 0, void 0, function* (
 exports.getAllSells = getAllSells;
 // 🧾 إنشاء فاتورة بيع جديدة
 const createSell = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
     try {
         const id = (0, uuid_1.v4)();
-        const NowDate = new Date().toLocaleString();
-        const newSell = Object.assign(Object.assign({}, req.body), { id, date: NowDate });
+        const operationDate = (0, operationDate_1.resolveOperationDate)((_a = req.body) === null || _a === void 0 ? void 0 : _a.date);
+        const newSell = Object.assign(Object.assign({}, req.body), { id, date: operationDate });
         yield (0, database_1.set)((0, database_1.ref)(firebaseConfig_1.database, `sells/${id}`), newSell);
         res.json({ message: "✅ تم تسجيل فاتورة البيع", data: newSell });
     }
     catch (error) {
+        if (error instanceof Error && error.message === "Invalid operation date") {
+            res.status(400).json({ message: error.message });
+            return;
+        }
         console.error("❌ خطأ أثناء إنشاء فاتورة البيع:", error);
         res.status(500).json({ message: "حدث خطأ أثناء إنشاء فاتورة البيع" });
     }
@@ -64,8 +70,8 @@ exports.deleteSell = deleteSell;
 const createSellInternal = (newSell) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const id = (0, uuid_1.v4)();
-        const NowDate = new Date().toLocaleString();
-        const sellData = Object.assign(Object.assign({}, newSell), { id, date: NowDate });
+        const operationDate = (0, operationDate_1.resolveOperationDate)(newSell.date);
+        const sellData = Object.assign(Object.assign({}, newSell), { id, date: operationDate });
         yield (0, database_1.set)((0, database_1.ref)(firebaseConfig_1.database, `sells/${id}`), sellData);
         return sellData;
     }
