@@ -8,6 +8,17 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
+var __rest = (this && this.__rest) || function (s, e) {
+    var t = {};
+    for (var p in s) if (Object.prototype.hasOwnProperty.call(s, p) && e.indexOf(p) < 0)
+        t[p] = s[p];
+    if (s != null && typeof Object.getOwnPropertySymbols === "function")
+        for (var i = 0, p = Object.getOwnPropertySymbols(s); i < p.length; i++) {
+            if (e.indexOf(p[i]) < 0 && Object.prototype.propertyIsEnumerable.call(s, p[i]))
+                t[p[i]] = s[p[i]];
+        }
+    return t;
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createReturnInternal = exports.createReturn = exports.getReturnById = exports.getAllReturns = void 0;
 const database_1 = require("firebase/database");
@@ -119,18 +130,21 @@ exports.createReturn = createReturn;
 const createReturnInternal = (newReturn) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const db = (0, database_1.getDatabase)();
-        const productRef = (0, database_1.ref)(db, `products/${newReturn.warehouse}/${newReturn.productId}`);
+        const { applyStock = true } = newReturn, returnData = __rest(newReturn, ["applyStock"]);
+        const productRef = (0, database_1.ref)(db, `products/${returnData.warehouse}/${returnData.productId}`);
         const productSnap = yield (0, database_1.get)(productRef);
         if (!productSnap.exists()) {
             throw new Error("❌ المنتج غير موجود في المستودع");
         }
         const product = productSnap.val();
         const now = new Date().toLocaleString();
-        applyReturnToProduct(product, newReturn.type, newReturn.qty);
-        product.updatedDate = now;
-        yield (0, database_1.update)(productRef, product);
+        if (applyStock) {
+            applyReturnToProduct(product, returnData.type, returnData.qty);
+            product.updatedDate = now;
+            yield (0, database_1.update)(productRef, product);
+        }
         const id = (0, uuid_1.v4)();
-        const returnRecord = Object.assign(Object.assign({}, newReturn), { id, createdDate: now });
+        const returnRecord = Object.assign(Object.assign({}, returnData), { id, createdDate: now });
         yield (0, database_1.set)((0, database_1.ref)(db, `returns/${id}`), returnRecord);
         return { returnRecord, product };
     }

@@ -6,14 +6,16 @@ export interface ReturnData {
   productCode: string;
   productId: string;
   warehouse: string;
+  sourceWarehouse?: string;
   qty: number;
   type: "sale-return" | "purchase-return";
   referenceId?: string | null;
   reason?: string;
   executer?: string;
+  applyStock?: boolean;
 }
 
-export interface ReturnRecord extends ReturnData {
+export interface ReturnRecord extends Omit<ReturnData, "applyStock"> {
   id: string;
   createdDate: string;
 }
@@ -138,9 +140,10 @@ export const createReturn = async (req: Request, res: Response) => {
 export const createReturnInternal = async (newReturn: ReturnData) => {
   try {
     const db = getDatabase();
+    const { applyStock = true, ...returnData } = newReturn;
     const productRef = ref(
       db,
-      `products/${newReturn.warehouse}/${newReturn.productId}`
+      `products/${returnData.warehouse}/${returnData.productId}`
     );
     const productSnap = await get(productRef);
 
@@ -151,14 +154,16 @@ export const createReturnInternal = async (newReturn: ReturnData) => {
     const product = productSnap.val();
     const now = new Date().toLocaleString();
 
-    applyReturnToProduct(product, newReturn.type, newReturn.qty);
-    product.updatedDate = now;
+    if (applyStock) {
+      applyReturnToProduct(product, returnData.type, returnData.qty);
+      product.updatedDate = now;
 
-    await update(productRef, product);
+      await update(productRef, product);
+    }
 
     const id = uuidv4();
     const returnRecord: ReturnRecord = {
-      ...newReturn,
+      ...returnData,
       id,
       createdDate: now,
     };

@@ -208,6 +208,7 @@ const normalizeCustomerReturnItems = (newReturn) => {
                     productCode: newReturn.productCode,
                     productId: newReturn.productId,
                     warehouse: newReturn.warehouse,
+                    returnWarehouse: newReturn.returnWarehouse,
                     qty: newReturn.qty,
                     returnValue: Number(newReturn.returnValue || 0),
                 },
@@ -217,9 +218,12 @@ const normalizeCustomerReturnItems = (newReturn) => {
         throw new Error("No return items were provided");
     }
     return rawItems.map((item, idx) => {
+        var _a, _b;
         const qty = Math.abs(Number(item.qty || 0));
         const returnValue = Number(item.returnValue || 0);
-        if (!item.productCode || !item.productId || !item.warehouse) {
+        const warehouse = (_a = item.warehouse) === null || _a === void 0 ? void 0 : _a.trim();
+        const returnWarehouse = (_b = (item.returnWarehouse || item.warehouse)) === null || _b === void 0 ? void 0 : _b.trim();
+        if (!item.productCode || !item.productId || !warehouse || !returnWarehouse) {
             throw new Error(`Invalid return item at index ${idx}`);
         }
         if (!Number.isFinite(qty) || qty <= 0) {
@@ -231,7 +235,8 @@ const normalizeCustomerReturnItems = (newReturn) => {
         return {
             productCode: item.productCode,
             productId: item.productId,
-            warehouse: item.warehouse,
+            warehouse,
+            returnWarehouse,
             qty,
             returnValue,
         };
@@ -263,6 +268,7 @@ const handleCustomerReturn = (newReturn) => __awaiter(void 0, void 0, void 0, fu
         throw new Error("Return customer does not match invoice customer");
     }
     const requestedBySellLine = new Map();
+    const soldLineByKey = new Map();
     for (const item of items) {
         const key = `${item.productCode}::${item.warehouse}`;
         const current = requestedBySellLine.get(key);
@@ -285,6 +291,7 @@ const handleCustomerReturn = (newReturn) => __awaiter(void 0, void 0, void 0, fu
         if (requestLine.qty > Number(soldLine.qty || 0)) {
             throw new Error(`Return qty for ${requestLine.code} exceeds sold qty (${soldLine.qty})`);
         }
+        soldLineByKey.set(`${requestLine.code}::${requestLine.warehouse}`, soldLine);
     }
     for (const item of items) {
         const productSnap = yield (0, database_1.get)((0, database_1.ref)(firebaseConfig_1.database, `products/${item.warehouse}/${item.productId}`));
@@ -294,15 +301,24 @@ const handleCustomerReturn = (newReturn) => __awaiter(void 0, void 0, void 0, fu
     }
     // 2) Apply stock + return records for each item
     for (const item of items) {
+        const sourceKey = `${item.productCode}::${item.warehouse}`;
+        const soldLine = soldLineByKey.get(sourceKey);
+        if (!soldLine) {
+            throw new Error(`Item ${item.productCode} not found in invoice ${newReturn.referenceId}`);
+        }
+        const returnWarehouse = item.returnWarehouse || item.warehouse;
+        const restockedProduct = yield (0, products_controller_1.createOrUpdateProductInternal)(Object.assign(Object.assign({}, soldLine), { warehouse: returnWarehouse, quantity: item.qty }));
         yield (0, returns_controller_1.createReturnInternal)({
             productCode: item.productCode,
-            productId: item.productId,
-            warehouse: item.warehouse,
+            productId: restockedProduct.id || item.productId,
+            warehouse: returnWarehouse,
+            sourceWarehouse: item.warehouse,
             qty: item.qty,
             type: "sale-return",
             referenceId: newReturn.referenceId,
             reason: newReturn.reason || "",
             executer: newReturn.executer || "Unknown",
+            applyStock: false,
         });
     }
     // 3) Update invoice one time for all returned items

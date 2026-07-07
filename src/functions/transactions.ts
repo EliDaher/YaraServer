@@ -286,6 +286,7 @@ type CustomerReturnItem = {
   productCode: string;
   productId: string;
   warehouse: string;
+  returnWarehouse?: string;
   qty: number;
   returnValue: number;
 };
@@ -302,6 +303,7 @@ type CustomerReturnPayload = {
   productCode?: string;
   productId?: string;
   warehouse?: string;
+  returnWarehouse?: string;
   qty?: number;
   returnValue?: number;
 };
@@ -321,6 +323,7 @@ const normalizeCustomerReturnItems = (
               productCode: newReturn.productCode,
               productId: newReturn.productId,
               warehouse: newReturn.warehouse,
+              returnWarehouse: newReturn.returnWarehouse,
               qty: newReturn.qty,
               returnValue: Number(newReturn.returnValue || 0),
             },
@@ -334,8 +337,10 @@ const normalizeCustomerReturnItems = (
   return rawItems.map((item, idx) => {
     const qty = Math.abs(Number(item.qty || 0));
     const returnValue = Number(item.returnValue || 0);
+    const warehouse = item.warehouse?.trim();
+    const returnWarehouse = (item.returnWarehouse || item.warehouse)?.trim();
 
-    if (!item.productCode || !item.productId || !item.warehouse) {
+    if (!item.productCode || !item.productId || !warehouse || !returnWarehouse) {
       throw new Error(`Invalid return item at index ${idx}`);
     }
     if (!Number.isFinite(qty) || qty <= 0) {
@@ -348,7 +353,8 @@ const normalizeCustomerReturnItems = (
     return {
       productCode: item.productCode,
       productId: item.productId,
-      warehouse: item.warehouse,
+      warehouse,
+      returnWarehouse,
       qty,
       returnValue,
     };
@@ -392,6 +398,7 @@ export const handleCustomerReturn = async (newReturn: CustomerReturnPayload) => 
     string,
     { code: string; warehouse: string; qty: number }
   >();
+  const soldLineByKey = new Map<string, sell["products"][number]>();
 
   for (const item of items) {
     const key = `${item.productCode}::${item.warehouse}`;
@@ -422,6 +429,8 @@ export const handleCustomerReturn = async (newReturn: CustomerReturnPayload) => 
         `Return qty for ${requestLine.code} exceeds sold qty (${soldLine.qty})`
       );
     }
+
+    soldLineByKey.set(`${requestLine.code}::${requestLine.warehouse}`, soldLine);
   }
 
   for (const item of items) {
@@ -437,15 +446,32 @@ export const handleCustomerReturn = async (newReturn: CustomerReturnPayload) => 
 
   // 2) Apply stock + return records for each item
   for (const item of items) {
+    const sourceKey = `${item.productCode}::${item.warehouse}`;
+    const soldLine = soldLineByKey.get(sourceKey);
+    if (!soldLine) {
+      throw new Error(
+        `Item ${item.productCode} not found in invoice ${newReturn.referenceId}`
+      );
+    }
+
+    const returnWarehouse = item.returnWarehouse || item.warehouse;
+    const restockedProduct = await createOrUpdateProductInternal({
+      ...soldLine,
+      warehouse: returnWarehouse,
+      quantity: item.qty,
+    });
+
     await createReturnInternal({
       productCode: item.productCode,
-      productId: item.productId,
-      warehouse: item.warehouse,
+      productId: restockedProduct.id || item.productId,
+      warehouse: returnWarehouse,
+      sourceWarehouse: item.warehouse,
       qty: item.qty,
       type: "sale-return",
       referenceId: newReturn.referenceId,
       reason: newReturn.reason || "",
       executer: newReturn.executer || "Unknown",
+      applyStock: false,
     });
   }
 
