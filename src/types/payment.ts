@@ -2,6 +2,8 @@
 export interface Payment {
     id?: string;
     type: string,
+    source?: "manual" | "cashbox" | "generated",
+    balanceApplied?: boolean,
     supplierId?: string,
     customerId?: string,
     currency: string,

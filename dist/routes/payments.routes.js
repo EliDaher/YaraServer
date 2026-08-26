@@ -9,4 +9,5 @@ const router = express_1.default.Router();
 router.get('/', payments_controller_1.getAll);
 router.get('/month', payments_controller_1.getMonthPayments);
 router.post('/create', payments_controller_1.createPayment);
+router.delete('/:id', payments_controller_1.deletePayment);
 exports.default = router;

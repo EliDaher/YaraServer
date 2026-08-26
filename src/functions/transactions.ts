@@ -65,6 +65,8 @@ export const handlePurchase = async ({
   ) {
     await createPaymentInternal({
       type: "expense",
+      source: "generated",
+      balanceApplied: false,
       supplierId: purchaseData.supplierId,
       amount: -(purchaseData.totalPrice - purchaseData.remainingDebt),
       note: `${newProduct.name} دفعة من ثمن شراء`,
@@ -81,6 +83,8 @@ export const handlePurchase = async ({
     // 5- دين كامل
     await createPaymentInternal({
       type: "expense",
+      source: "generated",
+      balanceApplied: false,
       supplierId: purchaseData.supplierId,
       amount: -purchaseData.totalPrice,
       note: `${newProduct.name} دفع كامل ثمن شراء`,
@@ -96,6 +100,8 @@ export const handlePurchase = async ({
   if (transferCost > 0) {
     await createPaymentInternal({
       type: "expense",
+      source: "generated",
+      balanceApplied: false,
       supplierId: purchaseData.supplierId,
       amount: -transferCost,
       note: `${newProduct.name} transfer/shipping cost`,
@@ -139,6 +145,8 @@ export const handleSell = async ({
     if (sellData.remainingDebt == 0) {
       await createPaymentInternal({
         type: "income",
+        source: "generated",
+        balanceApplied: false,
         customerId: sellData.customerId,
         amount: sellData.totalPrice,
         note: `دفع كامل ثمن بيع`,
@@ -152,6 +160,8 @@ export const handleSell = async ({
       // 4- اضافة دفعة في حالة ودجودها
       await createPaymentInternal({
         type: "income",
+        source: "generated",
+        balanceApplied: false,
         customerId: sellData.customerId,
         amount: sellData.totalPrice - sellData.remainingDebt,
         note: `دفعه من ثمن بيع`,
@@ -180,13 +190,15 @@ export const customerPayment = async (
   // 1- تسجيل عملية الدفع
   const data = await createPaymentInternal({
     ...paymentData,
+    source: "manual",
+    balanceApplied: true,
     executer: executer || "Unknown",
   });
 
   // 2- تحديث رصيد العميل
-  data.customerId
-    ? updateCustomerInternal(data.customerId, undefined, paymentData)
-    : null;
+  if (data.customerId) {
+    await updateCustomerInternal(data.customerId, undefined, paymentData);
+  }
 
   return data;
 };
@@ -198,13 +210,15 @@ export const supplierPayment = async (
   // 1- تسجيل عملية الدفع
   const data = await createPaymentInternal({
     ...paymentData,
+    source: "manual",
+    balanceApplied: true,
     executer: executer || "Unknown",
   });
 
   // 2- تحديث رصيد المورد
-  data.supplierId
-    ? updateSupplierInternal(data.supplierId, undefined, paymentData)
-    : null;
+  if (data.supplierId) {
+    await updateSupplierInternal(data.supplierId, undefined, paymentData);
+  }
 
   return data;
 };
@@ -240,6 +254,8 @@ export const handleSupplierReturn = async (newReturn: {
 
     await createPaymentInternal({
       type: "return",
+      source: "generated",
+      balanceApplied: false,
       supplierId: newReturn.supplierId,
       amount: paymentAmount,
       note: `اعادة منتجات للمورد (${newReturn.productCode})`,
@@ -496,6 +512,8 @@ export const handleCustomerReturn = async (newReturn: CustomerReturnPayload) => 
 
     await createPaymentInternal({
       type: "return",
+      source: "generated",
+      balanceApplied: false,
       customerId: newReturn.customerId,
       amount: paymentAmount,
       note: `Customer return (${items.length} item(s))`,
@@ -602,6 +620,8 @@ export const warehouseTransfer = async (transferData: {
     if (transferData.amount > 0) {
       await createPaymentInternal({
         type: "expense",
+        source: "generated",
+        balanceApplied: false,
         supplierId: "transfer",
         currency: transferData.currency,
         exchangeRate: transferData.exchangeRate,

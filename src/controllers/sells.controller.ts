@@ -233,6 +233,8 @@ export const updateSellById = async (req: Request, res: Response) => {
     const payment: Payment = {
       id: paymentId,
       type: "sell_edit",
+      source: "generated",
+      balanceApplied: false,
       customerId: sellData.customerId,
       currency: sellData.currency || "",
       exchangeRate: 1,
@@ -304,6 +306,8 @@ export const deleteSellById = async (req: Request, res: Response) => {
     const paymentId = uuidv4();
     const payment: Payment = {
       type: "sell_delete",
+      source: "generated",
+      balanceApplied: false,
       customerId: sellData.customerId,
       currency: sellData.currency || "",
       exchangeRate: 1,

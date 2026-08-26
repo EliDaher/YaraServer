@@ -36,6 +36,8 @@ const handlePurchase = (_a) => __awaiter(void 0, [_a], void 0, function* ({ newP
         purchaseData.remainingDebt < purchaseData.totalPrice) {
         yield (0, payments_controller_1.createPaymentInternal)({
             type: "expense",
+            source: "generated",
+            balanceApplied: false,
             supplierId: purchaseData.supplierId,
             amount: -(purchaseData.totalPrice - purchaseData.remainingDebt),
             note: `${newProduct.name} دفعة من ثمن شراء`,
@@ -51,6 +53,8 @@ const handlePurchase = (_a) => __awaiter(void 0, [_a], void 0, function* ({ newP
         // 5- دين كامل
         yield (0, payments_controller_1.createPaymentInternal)({
             type: "expense",
+            source: "generated",
+            balanceApplied: false,
             supplierId: purchaseData.supplierId,
             amount: -purchaseData.totalPrice,
             note: `${newProduct.name} دفع كامل ثمن شراء`,
@@ -66,6 +70,8 @@ const handlePurchase = (_a) => __awaiter(void 0, [_a], void 0, function* ({ newP
     if (transferCost > 0) {
         yield (0, payments_controller_1.createPaymentInternal)({
             type: "expense",
+            source: "generated",
+            balanceApplied: false,
             supplierId: purchaseData.supplierId,
             amount: -transferCost,
             note: `${newProduct.name} transfer/shipping cost`,
@@ -96,6 +102,8 @@ const handleSell = (_a) => __awaiter(void 0, [_a], void 0, function* ({ newSell,
         if (sellData.remainingDebt == 0) {
             yield (0, payments_controller_1.createPaymentInternal)({
                 type: "income",
+                source: "generated",
+                balanceApplied: false,
                 customerId: sellData.customerId,
                 amount: sellData.totalPrice,
                 note: `دفع كامل ثمن بيع`,
@@ -110,6 +118,8 @@ const handleSell = (_a) => __awaiter(void 0, [_a], void 0, function* ({ newSell,
             // 4- اضافة دفعة في حالة ودجودها
             yield (0, payments_controller_1.createPaymentInternal)({
                 type: "income",
+                source: "generated",
+                balanceApplied: false,
                 customerId: sellData.customerId,
                 amount: sellData.totalPrice - sellData.remainingDebt,
                 note: `دفعه من ثمن بيع`,
@@ -133,21 +143,21 @@ const handleSell = (_a) => __awaiter(void 0, [_a], void 0, function* ({ newSell,
 exports.handleSell = handleSell;
 const customerPayment = (paymentData, executer) => __awaiter(void 0, void 0, void 0, function* () {
     // 1- تسجيل عملية الدفع
-    const data = yield (0, payments_controller_1.createPaymentInternal)(Object.assign(Object.assign({}, paymentData), { executer: executer || "Unknown" }));
+    const data = yield (0, payments_controller_1.createPaymentInternal)(Object.assign(Object.assign({}, paymentData), { source: "manual", balanceApplied: true, executer: executer || "Unknown" }));
     // 2- تحديث رصيد العميل
-    data.customerId
-        ? (0, customer_controller_1.updateCustomerInternal)(data.customerId, undefined, paymentData)
-        : null;
+    if (data.customerId) {
+        yield (0, customer_controller_1.updateCustomerInternal)(data.customerId, undefined, paymentData);
+    }
     return data;
 });
 exports.customerPayment = customerPayment;
 const supplierPayment = (paymentData, executer) => __awaiter(void 0, void 0, void 0, function* () {
     // 1- تسجيل عملية الدفع
-    const data = yield (0, payments_controller_1.createPaymentInternal)(Object.assign(Object.assign({}, paymentData), { executer: executer || "Unknown" }));
+    const data = yield (0, payments_controller_1.createPaymentInternal)(Object.assign(Object.assign({}, paymentData), { source: "manual", balanceApplied: true, executer: executer || "Unknown" }));
     // 2- تحديث رصيد المورد
-    data.supplierId
-        ? (0, suppliers_controller_1.updateSupplierInternal)(data.supplierId, undefined, paymentData)
-        : null;
+    if (data.supplierId) {
+        yield (0, suppliers_controller_1.updateSupplierInternal)(data.supplierId, undefined, paymentData);
+    }
     return data;
 });
 exports.supplierPayment = supplierPayment;
@@ -163,6 +173,8 @@ const handleSupplierReturn = (newReturn) => __awaiter(void 0, void 0, void 0, fu
                 : 0;
         yield (0, payments_controller_1.createPaymentInternal)({
             type: "return",
+            source: "generated",
+            balanceApplied: false,
             supplierId: newReturn.supplierId,
             amount: paymentAmount,
             note: `اعادة منتجات للمورد (${newReturn.productCode})`,
@@ -335,6 +347,8 @@ const handleCustomerReturn = (newReturn) => __awaiter(void 0, void 0, void 0, fu
         const paymentAmount = newReturn.returnType === "cash" ? -totalReturnValue : -partValue;
         yield (0, payments_controller_1.createPaymentInternal)({
             type: "return",
+            source: "generated",
+            balanceApplied: false,
             customerId: newReturn.customerId,
             amount: paymentAmount,
             note: `Customer return (${items.length} item(s))`,
@@ -401,6 +415,8 @@ const warehouseTransfer = (transferData) => __awaiter(void 0, void 0, void 0, fu
         if (transferData.amount > 0) {
             yield (0, payments_controller_1.createPaymentInternal)({
                 type: "expense",
+                source: "generated",
+                balanceApplied: false,
                 supplierId: "transfer",
                 currency: transferData.currency,
                 exchangeRate: transferData.exchangeRate,

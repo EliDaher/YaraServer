@@ -195,6 +195,8 @@ const updateSellById = (req, res) => __awaiter(void 0, void 0, void 0, function*
         const payment = {
             id: paymentId,
             type: "sell_edit",
+            source: "generated",
+            balanceApplied: false,
             customerId: sellData.customerId,
             currency: sellData.currency || "",
             exchangeRate: 1,
@@ -255,6 +257,8 @@ const deleteSellById = (req, res) => __awaiter(void 0, void 0, void 0, function*
         const paymentId = (0, uuid_1.v4)();
         const payment = {
             type: "sell_delete",
+            source: "generated",
+            balanceApplied: false,
             customerId: sellData.customerId,
             currency: sellData.currency || "",
             exchangeRate: 1,
