@@ -86,6 +86,57 @@ export type TodayOverviewV2Options = {
 
 type V2Status = "good" | "watch" | "critical";
 
+export type SalesReportInvoiceRow = {
+  id: string;
+  date: string;
+  customerId: string;
+  customerName: string;
+  paymentStatus: string;
+  productsCount: number;
+  totalQuantity: number;
+  totalBeforeDiscount: number;
+  discount: number;
+  totalPrice: number;
+  paidAmount: number;
+  remainingDebt: number;
+  currency: string;
+  executer: string;
+};
+
+export type SalesReportCurrencyTotals = {
+  currency: string;
+  invoicesCount: number;
+  totalBeforeDiscount: number;
+  discount: number;
+  totalSales: number;
+  paidAmount: number;
+  remainingDebt: number;
+};
+
+export type SalesReportResult = {
+  meta: {
+    from: string;
+    to: string;
+    timezone: string;
+    generatedAt: string;
+  };
+  summary: {
+    invoicesCount: number;
+    totalSales: number;
+    paidAmount: number;
+    remainingDebt: number;
+    discount: number;
+  };
+  statusBreakdown: {
+    cash: number;
+    part: number;
+    debt: number;
+    other: number;
+  };
+  totalsByCurrency: SalesReportCurrencyTotals[];
+  invoices: SalesReportInvoiceRow[];
+};
+
 const asRecord = (value: unknown): Record<string, any> =>
   value && typeof value === "object" ? (value as Record<string, any>) : {};
 
@@ -98,6 +149,31 @@ const toNumber = (value: unknown) => {
 };
 
 const n2 = (value: unknown) => Number(toNumber(value).toFixed(2));
+
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+const parseDateOnly = (value: unknown): string | null => {
+  const input = asString(value);
+  if (!DATE_ONLY_PATTERN.test(input)) {
+    return null;
+  }
+
+  const parsed = new Date(`${input}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  const [year, month, day] = input.split("-").map(Number);
+  if (
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() + 1 !== month ||
+    parsed.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  return input;
+};
 
 const parseTimestampLoose = (value: unknown): number => {
   if (typeof value === "number") {
@@ -222,6 +298,189 @@ const processSnapshotRows = async (
     rowHandler(asRecord(child.val()), child.key || "");
     return false;
   });
+};
+
+const resolvePaidAmount = (row: Record<string, any>, totalPrice: number) => {
+  const status = asString(row.paymentStatus).toLowerCase();
+  if (status === "cash") {
+    return totalPrice;
+  }
+  if (status === "part") {
+    return Math.max(0, toNumber(row.partValue));
+  }
+  return 0;
+};
+
+export const buildSalesReport = async ({
+  from,
+  to,
+  timezone = DEFAULT_TIMEZONE,
+}: {
+  from: unknown;
+  to: unknown;
+  timezone?: string;
+}): Promise<SalesReportResult> => {
+  const fromDate = parseDateOnly(from);
+  const toDate = parseDateOnly(to);
+
+  if (!fromDate || !toDate) {
+    throw new Error("INVALID_DATE_RANGE");
+  }
+
+  if (fromDate > toDate) {
+    throw new Error("INVALID_DATE_RANGE_ORDER");
+  }
+
+  const [sellsSnapshot, customersSnapshot] = await Promise.all([
+    get(ref(database, "sells")),
+    get(ref(database, "customer")),
+  ]);
+
+  const customers = customersSnapshot.exists()
+    ? asRecord(customersSnapshot.val())
+    : {};
+  const invoices: SalesReportInvoiceRow[] = [];
+
+  if (sellsSnapshot.exists()) {
+    sellsSnapshot.forEach((child) => {
+      const row = asRecord(child.val());
+      const timestamp = parseTimestampLoose(row.date);
+      if (timestamp <= 0) {
+        return false;
+      }
+
+      const invoiceDateKey = toDateKey(timestamp, timezone);
+      if (invoiceDateKey < fromDate || invoiceDateKey > toDate) {
+        return false;
+      }
+
+      const products = Array.isArray(row.products) ? row.products : [];
+      const discount = Math.max(0, toNumber(row.discount));
+      const totalPrice = Math.max(0, toNumber(row.totalPrice));
+      const totalBeforeDiscount = totalPrice + discount;
+      const paidAmount = resolvePaidAmount(row, totalPrice);
+      const remainingDebt = Math.max(
+        0,
+        toNumber(row.remainingDebt) || totalPrice - paidAmount
+      );
+      const customerId = asString(row.customerId);
+      const customer = customerId ? asRecord(customers[customerId]) : {};
+      const id = asString(row.id) || child.key || "-";
+
+      invoices.push({
+        id,
+        date: toOperationDateString(row.date, timestamp),
+        customerId,
+        customerName:
+          asString(customer.name) ||
+          asString(row.customerName) ||
+          (customerId ? `عميل ${customerId}` : "بيع مباشر"),
+        paymentStatus: asString(row.paymentStatus) || "unknown",
+        productsCount: products.length,
+        totalQuantity: n2(
+          products.reduce(
+            (sum: number, product: any) => sum + toNumber(asRecord(product).qty),
+            0
+          )
+        ),
+        totalBeforeDiscount: n2(totalBeforeDiscount),
+        discount: n2(discount),
+        totalPrice: n2(totalPrice),
+        paidAmount: n2(paidAmount),
+        remainingDebt: n2(remainingDebt),
+        currency: asString(row.currency) || "UNKNOWN",
+        executer: normalizeExecuter(row),
+      });
+
+      return false;
+    });
+  }
+
+  invoices.sort(
+    (a, b) => parseTimestampLoose(b.date) - parseTimestampLoose(a.date)
+  );
+
+  const statusBreakdown = {
+    cash: 0,
+    part: 0,
+    debt: 0,
+    other: 0,
+  };
+
+  const currencyTotals = new Map<string, SalesReportCurrencyTotals>();
+  const summary = invoices.reduce(
+    (acc, invoice) => {
+      const status = invoice.paymentStatus.toLowerCase();
+      if (status === "cash" || status === "part" || status === "debt") {
+        statusBreakdown[status] += 1;
+      } else {
+        statusBreakdown.other += 1;
+      }
+
+      if (!currencyTotals.has(invoice.currency)) {
+        currencyTotals.set(invoice.currency, {
+          currency: invoice.currency,
+          invoicesCount: 0,
+          totalBeforeDiscount: 0,
+          discount: 0,
+          totalSales: 0,
+          paidAmount: 0,
+          remainingDebt: 0,
+        });
+      }
+
+      const currencyBucket = currencyTotals.get(invoice.currency)!;
+      currencyBucket.invoicesCount += 1;
+      currencyBucket.totalBeforeDiscount += invoice.totalBeforeDiscount;
+      currencyBucket.discount += invoice.discount;
+      currencyBucket.totalSales += invoice.totalPrice;
+      currencyBucket.paidAmount += invoice.paidAmount;
+      currencyBucket.remainingDebt += invoice.remainingDebt;
+
+      acc.invoicesCount += 1;
+      acc.totalSales += invoice.totalPrice;
+      acc.paidAmount += invoice.paidAmount;
+      acc.remainingDebt += invoice.remainingDebt;
+      acc.discount += invoice.discount;
+
+      return acc;
+    },
+    {
+      invoicesCount: 0,
+      totalSales: 0,
+      paidAmount: 0,
+      remainingDebt: 0,
+      discount: 0,
+    }
+  );
+
+  return {
+    meta: {
+      from: fromDate,
+      to: toDate,
+      timezone,
+      generatedAt: new Date().toISOString(),
+    },
+    summary: {
+      invoicesCount: summary.invoicesCount,
+      totalSales: n2(summary.totalSales),
+      paidAmount: n2(summary.paidAmount),
+      remainingDebt: n2(summary.remainingDebt),
+      discount: n2(summary.discount),
+    },
+    statusBreakdown,
+    totalsByCurrency: Array.from(currencyTotals.values())
+      .map((bucket) => ({
+        ...bucket,
+        totalBeforeDiscount: n2(bucket.totalBeforeDiscount),
+        discount: n2(bucket.discount),
+        totalSales: n2(bucket.totalSales),
+        paidAmount: n2(bucket.paidAmount),
+        remainingDebt: n2(bucket.remainingDebt),
+      }))
+      .sort((a, b) => a.currency.localeCompare(b.currency)),
+    invoices,
+  };
 };
 
 export const buildTodayOverview = async (

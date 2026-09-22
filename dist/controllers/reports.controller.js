@@ -9,7 +9,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getTodayOverviewV2 = exports.getTodayOverview = void 0;
+exports.getSalesReport = exports.getTodayOverviewV2 = exports.getTodayOverview = void 0;
 const reports_service_1 = require("../services/reports.service");
 const parseBooleanFlag = (value) => {
     if (typeof value !== "string") {
@@ -47,3 +47,26 @@ const getTodayOverviewV2 = (req, res) => __awaiter(void 0, void 0, void 0, funct
     }
 });
 exports.getTodayOverviewV2 = getTodayOverviewV2;
+const getSalesReport = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const report = yield (0, reports_service_1.buildSalesReport)({
+            from: req.query.from,
+            to: req.query.to,
+        });
+        return res.json(report);
+    }
+    catch (error) {
+        if (error instanceof Error &&
+            (error.message === "INVALID_DATE_RANGE" ||
+                error.message === "INVALID_DATE_RANGE_ORDER")) {
+            return res.status(400).json({
+                error: error.message === "INVALID_DATE_RANGE_ORDER"
+                    ? "from date must be before or equal to to date"
+                    : "from and to must be valid YYYY-MM-DD dates",
+            });
+        }
+        console.error("Sales report error:", error);
+        return res.status(500).json({ error: "Failed to generate sales report" });
+    }
+});
+exports.getSalesReport = getSalesReport;
