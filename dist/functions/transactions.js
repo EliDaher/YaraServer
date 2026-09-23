@@ -163,8 +163,20 @@ const supplierPayment = (paymentData, executer) => __awaiter(void 0, void 0, voi
 exports.supplierPayment = supplierPayment;
 const handleSupplierReturn = (newReturn) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        // 1️⃣ إنشاء سجل الإرجاع
-        yield (0, returns_controller_1.createReturnInternal)(Object.assign(Object.assign({}, newReturn), { type: "purchase-return", executer: newReturn.executer || "Unknown" }));
+        const returnQty = Math.abs(Number(newReturn.qty || 0));
+        if (!returnQty) {
+            throw new Error("Invalid return quantity");
+        }
+        const purchase = yield (0, purchases_controller_1.getPurchaseByIdInternal)(newReturn.referenceId);
+        if (!purchase) {
+            throw new Error("Purchase not found");
+        }
+        const updatedQuantity = Number(purchase.quantity || 0) - returnQty;
+        if (updatedQuantity < 0) {
+            throw new Error("Return quantity exceeds purchase quantity");
+        }
+        // 1️⃣ إنشاء سجل الإرجاع وتعديل المخزون
+        yield (0, returns_controller_1.createReturnInternal)(Object.assign(Object.assign({}, newReturn), { qty: returnQty, type: "purchase-return", executer: newReturn.executer || "Unknown" }));
         // 2️⃣ إنشاء سجل مالي
         const paymentAmount = newReturn.returnType === "cash"
             ? newReturn.returnValue
@@ -193,18 +205,14 @@ const handleSupplierReturn = (newReturn) => __awaiter(void 0, void 0, void 0, fu
         }
         yield (0, suppliers_controller_1.updateSupplierBalanceInternal)(newReturn.supplierId, balanceChange);
         // 4️⃣ تعديل الكمية في الفاتورة
-        const purchase = yield (0, purchases_controller_1.getPurchaseByIdInternal)(newReturn.referenceId);
-        const updatedQuantity = ((purchase === null || purchase === void 0 ? void 0 : purchase.quantity) || 0) + newReturn.qty;
         yield (0, purchases_controller_1.updatePurchaseInternal)(newReturn.referenceId, {
             quantity: updatedQuantity,
         });
-        // 5️⃣ تحديث مخزون المنتجات
-        yield (0, products_controller_1.updateQuantityOnSell)(newReturn.productId, newReturn.warehouse, newReturn.qty);
         return { success: true, message: "تمت عملية الإرجاع بنجاح" };
     }
     catch (error) {
         console.error("خطأ في عملية إرجاع المورد:", error);
-        return { success: false, message: "فشلت عملية الإرجاع", error };
+        throw error;
     }
 });
 exports.handleSupplierReturn = handleSupplierReturn;

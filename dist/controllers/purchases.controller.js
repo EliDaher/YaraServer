@@ -15,6 +15,21 @@ const database_1 = require("firebase/database");
 const products_controller_1 = require("./products.controller");
 const firebaseConfig_1 = require("../firebaseConfig");
 const operationDate_1 = require("../utils/operationDate");
+const normalizeId = (value) => typeof value === "string" ? value : (value === null || value === void 0 ? void 0 : value.id) || "";
+const linkPurchaseToSupplier = (supplierId, purchaseId) => __awaiter(void 0, void 0, void 0, function* () {
+    if (!supplierId || !purchaseId)
+        return;
+    const supplierRef = (0, database_1.ref)(firebaseConfig_1.database, `supplier/${supplierId}`);
+    const supplierSnapshot = yield (0, database_1.get)(supplierRef);
+    if (!supplierSnapshot.exists())
+        return;
+    const supplier = supplierSnapshot.val();
+    const purchases = Array.from(new Set([...(supplier.purchases || []), purchaseId]));
+    yield (0, database_1.update)(supplierRef, {
+        purchases,
+        updatedDate: new Date().toLocaleString(),
+    });
+});
 // ✅ الحصول على جميع عمليات الشراء
 const getAllPurchases = (_req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
@@ -35,9 +50,10 @@ const createPurchase = (req, res) => __awaiter(void 0, void 0, void 0, function*
         const { supplierId, products, totalPrice, paymentStatus, remainingDebt, code, warehouse, quantity, payPrice, name, currency, exchangeRate, amount_base, transferCost, date, } = req.body;
         const id = (0, uuid_1.v4)();
         const operationDate = (0, operationDate_1.resolveOperationDate)(date);
+        const normalizedSupplierId = normalizeId(supplierId);
         const purchaseData = {
             id,
-            supplierId,
+            supplierId: normalizedSupplierId,
             code,
             warehouse,
             quantity,
@@ -54,6 +70,7 @@ const createPurchase = (req, res) => __awaiter(void 0, void 0, void 0, function*
         };
         // ✅ حفظ عملية الشراء في قاعدة البيانات
         yield (0, database_1.set)((0, database_1.ref)(firebaseConfig_1.database, `purchases/${id}`), purchaseData);
+        yield linkPurchaseToSupplier(normalizedSupplierId, id);
         // ✅ تحديث المخزون لكل منتج تمت إضافته
         if (Array.isArray(products)) {
             for (const p of products) {

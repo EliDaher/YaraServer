@@ -7,6 +7,27 @@ import { ref, get, set, update, remove } from "firebase/database";
 import { database } from "../firebaseConfig";
 import { Customer } from "../types/customer";
 
+const toSafeSingleDecimalAmount = (value: unknown): number => {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? Math.trunc(value * 10) / 10 : 0;
+  }
+
+  if (typeof value === "string") {
+    const trimmedValue = value.trim();
+    if (!trimmedValue) return 0;
+
+    const amountMatch = trimmedValue.match(/^([+-]?\d+)(?:[.,](\d))?/);
+    if (!amountMatch) return 0;
+
+    const parsedValue = Number(
+      `${amountMatch[1]}${amountMatch[2] ? `.${amountMatch[2]}` : ""}`
+    );
+    return Number.isFinite(parsedValue) ? parsedValue : 0;
+  }
+
+  return 0;
+};
+
 // ✅ جلب جميع الموردين
 export const getAll = async (_req: Request, res: Response) => {
   try {
@@ -99,10 +120,11 @@ export const updateSupplierInternal = async (
   const now = new Date().toLocaleString();
 
   if (sellUpdates) {
+    const currentBalance = toSafeSingleDecimalAmount(supplier.balance);
+    const remainingDebt = toSafeSingleDecimalAmount(sellUpdates.remainingDebt);
     const updatedSupplier: Supplier = {
       ...supplier,
-      balance:
-        Number(supplier.balance || 0) + Number(sellUpdates.remainingDebt || 0),
+      balance: currentBalance + remainingDebt,
       purchases: [...(supplier.purchases || []), sellUpdates.id || ""],
       updatedDate: now,
     };
@@ -111,10 +133,11 @@ export const updateSupplierInternal = async (
   }
 
   if (paymentUpdates) {
+    const currentBalance = toSafeSingleDecimalAmount(supplier.balance);
+    const paymentAmount = toSafeSingleDecimalAmount(paymentUpdates.amount);
     const updatedSupplier: Supplier = {
       ...supplier,
-      balance:
-        Number(supplier.balance || 0) + Number(paymentUpdates.amount || 0),
+      balance: currentBalance + paymentAmount,
       updatedDate: now,
     };
     await set(supplierRef, updatedSupplier);
@@ -134,9 +157,11 @@ export const updateSupplierBalanceInternal = async (
   if (!snapshot.exists()) return null;
 
   const supplier = snapshot.val() as Supplier;
+  const currentBalance = toSafeSingleDecimalAmount(supplier.balance);
+  const safeAmountChange = toSafeSingleDecimalAmount(amountChange);
   const updatedSupplier: Supplier = {
     ...supplier,
-    balance: Number(supplier.balance || 0) + Number(amountChange),
+    balance: currentBalance + safeAmountChange,
     updatedDate: new Date().toLocaleString(),
   };
 
@@ -179,19 +204,54 @@ export const getSupplierById = async (req: Request, res: Response) => {
 
     const supplier = snapshot.val() as Supplier;
 
-    // جلب المشتريات
+    const normalizeId = (value: any) =>
+      typeof value === "string" ? value : value?.id;
+
+    const findProductId = (purchase: any, productsData: any) => {
+      const warehouseProducts = productsData[purchase.warehouse] || {};
+      const match = Object.entries(warehouseProducts).find(
+        ([productId, product]: [string, any]) =>
+          productId === purchase.productId ||
+          product?.id === purchase.productId ||
+          product?.code === purchase.code
+      );
+
+      return match?.[0] || purchase.productId || purchase.code;
+    };
+
+    const formatPurchase = (purchase: any, productsData: any) => ({
+      ...purchase,
+      supplierId: normalizeId(purchase.supplierId),
+      productId: findProductId(purchase, productsData),
+      transferCost: Number(purchase.transferCost || 0),
+    });
+
     const purchasesSnapshot = await get(ref(database, "purchases"));
     const purchasesData = purchasesSnapshot.exists()
       ? purchasesSnapshot.val()
       : {};
-    const purchases =
-      supplier.purchases
-        ?.map((purchaseId: string) => purchasesData[purchaseId])
-        .filter(Boolean)
-        .map((purchase: any) => ({
-          ...purchase,
-          transferCost: Number(purchase.transferCost || 0),
-        })) || [];
+    const productsSnapshot = await get(ref(database, "products"));
+    const productsData = productsSnapshot.exists() ? productsSnapshot.val() : {};
+    const purchasesById = new Map<string, any>();
+
+    Object.values(purchasesData)
+      .filter((purchase: any) => normalizeId(purchase?.supplierId) === id)
+      .forEach((purchase: any) => {
+        if (purchase?.id) {
+          purchasesById.set(purchase.id, formatPurchase(purchase, productsData));
+        }
+      });
+
+    supplier.purchases
+      ?.map((purchaseId: string) => purchasesData[purchaseId])
+      .filter(Boolean)
+      .forEach((purchase: any) => {
+        if (purchase?.id && !purchasesById.has(purchase.id)) {
+          purchasesById.set(purchase.id, formatPurchase(purchase, productsData));
+        }
+      });
+
+    const purchases = Array.from(purchasesById.values());
 
     // جلب المدفوعات
     const paymentSnapshot = await get(ref(database, "payment"));

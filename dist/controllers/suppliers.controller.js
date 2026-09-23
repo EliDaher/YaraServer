@@ -13,6 +13,22 @@ exports.getSupplierById = exports.getSupplierByIdInternal = exports.getAllsuppli
 const uuid_1 = require("uuid");
 const database_1 = require("firebase/database");
 const firebaseConfig_1 = require("../firebaseConfig");
+const toSafeSingleDecimalAmount = (value) => {
+    if (typeof value === "number") {
+        return Number.isFinite(value) ? Math.trunc(value * 10) / 10 : 0;
+    }
+    if (typeof value === "string") {
+        const trimmedValue = value.trim();
+        if (!trimmedValue)
+            return 0;
+        const amountMatch = trimmedValue.match(/^([+-]?\d+)(?:[.,](\d))?/);
+        if (!amountMatch)
+            return 0;
+        const parsedValue = Number(`${amountMatch[1]}${amountMatch[2] ? `.${amountMatch[2]}` : ""}`);
+        return Number.isFinite(parsedValue) ? parsedValue : 0;
+    }
+    return 0;
+};
 // ✅ جلب جميع الموردين
 const getAll = (_req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
@@ -81,12 +97,16 @@ const updateSupplierInternal = (id, sellUpdates, paymentUpdates) => __awaiter(vo
     const supplier = snapshot.val();
     const now = new Date().toLocaleString();
     if (sellUpdates) {
-        const updatedSupplier = Object.assign(Object.assign({}, supplier), { balance: Number(supplier.balance || 0) + Number(sellUpdates.remainingDebt || 0), purchases: [...(supplier.purchases || []), sellUpdates.id || ""], updatedDate: now });
+        const currentBalance = toSafeSingleDecimalAmount(supplier.balance);
+        const remainingDebt = toSafeSingleDecimalAmount(sellUpdates.remainingDebt);
+        const updatedSupplier = Object.assign(Object.assign({}, supplier), { balance: currentBalance + remainingDebt, purchases: [...(supplier.purchases || []), sellUpdates.id || ""], updatedDate: now });
         yield (0, database_1.set)(supplierRef, updatedSupplier);
         return updatedSupplier;
     }
     if (paymentUpdates) {
-        const updatedSupplier = Object.assign(Object.assign({}, supplier), { balance: Number(supplier.balance || 0) + Number(paymentUpdates.amount || 0), updatedDate: now });
+        const currentBalance = toSafeSingleDecimalAmount(supplier.balance);
+        const paymentAmount = toSafeSingleDecimalAmount(paymentUpdates.amount);
+        const updatedSupplier = Object.assign(Object.assign({}, supplier), { balance: currentBalance + paymentAmount, updatedDate: now });
         yield (0, database_1.set)(supplierRef, updatedSupplier);
         return updatedSupplier;
     }
@@ -100,7 +120,9 @@ const updateSupplierBalanceInternal = (id, amountChange) => __awaiter(void 0, vo
     if (!snapshot.exists())
         return null;
     const supplier = snapshot.val();
-    const updatedSupplier = Object.assign(Object.assign({}, supplier), { balance: Number(supplier.balance || 0) + Number(amountChange), updatedDate: new Date().toLocaleString() });
+    const currentBalance = toSafeSingleDecimalAmount(supplier.balance);
+    const safeAmountChange = toSafeSingleDecimalAmount(amountChange);
+    const updatedSupplier = Object.assign(Object.assign({}, supplier), { balance: currentBalance + safeAmountChange, updatedDate: new Date().toLocaleString() });
     yield (0, database_1.set)(supplierRef, updatedSupplier);
     return updatedSupplier;
 });
@@ -137,12 +159,35 @@ const getSupplierById = (req, res) => __awaiter(void 0, void 0, void 0, function
             return res.status(404).json({ error: "Supplier not found" });
         }
         const supplier = snapshot.val();
-        // جلب المشتريات
+        const normalizeId = (value) => typeof value === "string" ? value : value === null || value === void 0 ? void 0 : value.id;
+        const findProductId = (purchase, productsData) => {
+            const warehouseProducts = productsData[purchase.warehouse] || {};
+            const match = Object.entries(warehouseProducts).find(([productId, product]) => productId === purchase.productId ||
+                (product === null || product === void 0 ? void 0 : product.id) === purchase.productId ||
+                (product === null || product === void 0 ? void 0 : product.code) === purchase.code);
+            return (match === null || match === void 0 ? void 0 : match[0]) || purchase.productId || purchase.code;
+        };
+        const formatPurchase = (purchase, productsData) => (Object.assign(Object.assign({}, purchase), { supplierId: normalizeId(purchase.supplierId), productId: findProductId(purchase, productsData), transferCost: Number(purchase.transferCost || 0) }));
         const purchasesSnapshot = yield (0, database_1.get)((0, database_1.ref)(firebaseConfig_1.database, "purchases"));
         const purchasesData = purchasesSnapshot.exists()
             ? purchasesSnapshot.val()
             : {};
-        const purchases = ((_a = supplier.purchases) === null || _a === void 0 ? void 0 : _a.map((purchaseId) => purchasesData[purchaseId]).filter(Boolean).map((purchase) => (Object.assign(Object.assign({}, purchase), { transferCost: Number(purchase.transferCost || 0) })))) || [];
+        const productsSnapshot = yield (0, database_1.get)((0, database_1.ref)(firebaseConfig_1.database, "products"));
+        const productsData = productsSnapshot.exists() ? productsSnapshot.val() : {};
+        const purchasesById = new Map();
+        Object.values(purchasesData)
+            .filter((purchase) => normalizeId(purchase === null || purchase === void 0 ? void 0 : purchase.supplierId) === id)
+            .forEach((purchase) => {
+            if (purchase === null || purchase === void 0 ? void 0 : purchase.id) {
+                purchasesById.set(purchase.id, formatPurchase(purchase, productsData));
+            }
+        });
+        (_a = supplier.purchases) === null || _a === void 0 ? void 0 : _a.map((purchaseId) => purchasesData[purchaseId]).filter(Boolean).forEach((purchase) => {
+            if ((purchase === null || purchase === void 0 ? void 0 : purchase.id) && !purchasesById.has(purchase.id)) {
+                purchasesById.set(purchase.id, formatPurchase(purchase, productsData));
+            }
+        });
+        const purchases = Array.from(purchasesById.values());
         // جلب المدفوعات
         const paymentSnapshot = yield (0, database_1.get)((0, database_1.ref)(firebaseConfig_1.database, "payment"));
         const paymentsData = paymentSnapshot.exists()

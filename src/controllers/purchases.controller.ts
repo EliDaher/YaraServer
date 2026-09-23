@@ -6,6 +6,27 @@ import { createOrUpdateProductInternal } from "./products.controller";
 import { database } from "../firebaseConfig";
 import { resolveOperationDate } from "../utils/operationDate";
 
+const normalizeId = (value: any) =>
+  typeof value === "string" ? value : value?.id || "";
+
+const linkPurchaseToSupplier = async (supplierId: string, purchaseId: string) => {
+  if (!supplierId || !purchaseId) return;
+
+  const supplierRef = ref(database, `supplier/${supplierId}`);
+  const supplierSnapshot = await get(supplierRef);
+  if (!supplierSnapshot.exists()) return;
+
+  const supplier = supplierSnapshot.val();
+  const purchases = Array.from(
+    new Set([...(supplier.purchases || []), purchaseId])
+  );
+
+  await update(supplierRef, {
+    purchases,
+    updatedDate: new Date().toLocaleString(),
+  });
+};
+
 // ✅ الحصول على جميع عمليات الشراء
 export const getAllPurchases = async (_req: Request, res: Response) => {
   try {
@@ -42,10 +63,11 @@ export const createPurchase = async (req: Request, res: Response) => {
 
     const id = uuidv4();
     const operationDate = resolveOperationDate(date);
+    const normalizedSupplierId = normalizeId(supplierId);
 
     const purchaseData: purchase = {
       id,
-      supplierId,
+      supplierId: normalizedSupplierId,
       code,
       warehouse,
       quantity,
@@ -63,6 +85,7 @@ export const createPurchase = async (req: Request, res: Response) => {
 
     // ✅ حفظ عملية الشراء في قاعدة البيانات
     await set(ref(database, `purchases/${id}`), purchaseData);
+    await linkPurchaseToSupplier(normalizedSupplierId, id);
 
     // ✅ تحديث المخزون لكل منتج تمت إضافته
     if (Array.isArray(products)) {

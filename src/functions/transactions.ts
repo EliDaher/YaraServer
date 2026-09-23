@@ -237,9 +237,25 @@ export const handleSupplierReturn = async (newReturn: {
   executer?: string;
 }) => {
   try {
-    // 1️⃣ إنشاء سجل الإرجاع
+    const returnQty = Math.abs(Number(newReturn.qty || 0));
+    if (!returnQty) {
+      throw new Error("Invalid return quantity");
+    }
+
+    const purchase = await getPurchaseByIdInternal(newReturn.referenceId);
+    if (!purchase) {
+      throw new Error("Purchase not found");
+    }
+
+    const updatedQuantity = Number(purchase.quantity || 0) - returnQty;
+    if (updatedQuantity < 0) {
+      throw new Error("Return quantity exceeds purchase quantity");
+    }
+
+    // 1️⃣ إنشاء سجل الإرجاع وتعديل المخزون
     await createReturnInternal({
       ...newReturn,
+      qty: returnQty,
       type: "purchase-return",
       executer: newReturn.executer || "Unknown",
     });
@@ -275,24 +291,14 @@ export const handleSupplierReturn = async (newReturn: {
     await updateSupplierBalanceInternal(newReturn.supplierId, balanceChange);
 
     // 4️⃣ تعديل الكمية في الفاتورة
-    const purchase = await getPurchaseByIdInternal(newReturn.referenceId);
-    const updatedQuantity = (purchase?.quantity || 0) + newReturn.qty;
-
     await updatePurchaseInternal(newReturn.referenceId, {
       quantity: updatedQuantity,
     });
 
-    // 5️⃣ تحديث مخزون المنتجات
-    await updateQuantityOnSell(
-      newReturn.productId,
-      newReturn.warehouse,
-      newReturn.qty
-    );
-
     return { success: true, message: "تمت عملية الإرجاع بنجاح" };
   } catch (error) {
     console.error("خطأ في عملية إرجاع المورد:", error);
-    return { success: false, message: "فشلت عملية الإرجاع", error };
+    throw error;
   }
 };
 
