@@ -10,7 +10,9 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getByWarehouse = exports.getProductByIdInternal = exports.createOrUpdateProductInternal = exports.deleteProduct = exports.updateProduct = exports.updateQuantityOnSell = exports.create = exports.getProductById = exports.getAll = void 0;
-const database_1 = require("firebase/database");
+const numbers_1 = require("../utils/numbers");
+const database_1 = require("../utils/database");
+const database_2 = require("firebase/database");
 const firebaseConfig_1 = require("../firebaseConfig");
 let productsCache = null;
 let lastFetch = 0;
@@ -23,7 +25,7 @@ const getAll = (_req, res) => __awaiter(void 0, void 0, void 0, function* () {
         if (productsCache && Date.now() - lastFetch < compareTime) {
             return res.json(productsCache);
         }
-        const snapshot = yield (0, database_1.get)((0, database_1.ref)(firebaseConfig_1.database, "products"));
+        const snapshot = yield (0, database_2.get)((0, database_2.ref)(firebaseConfig_1.database, "products"));
         const products = snapshot.exists()
             ? Object.entries(snapshot.val()).flatMap(([categoryName, items]) => Object.entries(items).map(([id, product]) => (Object.assign({ id, category: categoryName }, product))))
             : [];
@@ -44,7 +46,7 @@ const getProductById = (req, res) => __awaiter(void 0, void 0, void 0, function*
         const { id } = req.body;
         if (!id)
             return res.status(400).json({ message: "product id is required" });
-        const productsSnapshot = yield (0, database_1.get)((0, database_1.ref)(firebaseConfig_1.database, "products"));
+        const productsSnapshot = yield (0, database_2.get)((0, database_2.ref)(firebaseConfig_1.database, "products"));
         if (!productsSnapshot.exists())
             return res.status(404).json({ message: "المنتج غير موجود" });
         const warehouses = productsSnapshot.val();
@@ -64,7 +66,7 @@ const getProductById = (req, res) => __awaiter(void 0, void 0, void 0, function*
         }
         if (!foundProduct)
             return res.status(404).json({ message: "❌ المنتج غير موجود" });
-        const transfersSnapshot = yield (0, database_1.get)((0, database_1.ref)(firebaseConfig_1.database, "warehouseTransfers"));
+        const transfersSnapshot = yield (0, database_2.get)((0, database_2.ref)(firebaseConfig_1.database, "warehouseTransfers"));
         const transfersData = transfersSnapshot.exists()
             ? transfersSnapshot.val()
             : {};
@@ -73,11 +75,11 @@ const getProductById = (req, res) => __awaiter(void 0, void 0, void 0, function*
             t.productCode === foundProduct.code)
             .map((t) => (Object.assign(Object.assign({}, t), { executer: t.executer || t.performedBy || "Unknown", performedBy: t.executer || t.performedBy || "Unknown", type: "transfer" })));
         // جلب المشتريات
-        const purchasesSnapshot = yield (0, database_1.get)((0, database_1.ref)(firebaseConfig_1.database, "purchases"));
+        const purchasesSnapshot = yield (0, database_2.get)((0, database_2.ref)(firebaseConfig_1.database, "purchases"));
         const purchasesData = purchasesSnapshot.exists()
             ? purchasesSnapshot.val()
             : {};
-        const supplierSnapshot = yield (0, database_1.get)((0, database_1.ref)(firebaseConfig_1.database, "supplier"));
+        const supplierSnapshot = yield (0, database_2.get)((0, database_2.ref)(firebaseConfig_1.database, "supplier"));
         const supplierData = supplierSnapshot.exists()
             ? supplierSnapshot.val()
             : {};
@@ -89,9 +91,9 @@ const getProductById = (req, res) => __awaiter(void 0, void 0, void 0, function*
             return (Object.assign(Object.assign({}, p), { transferCost: Number(p.transferCost || 0), supplierName: ((_a = supplierData[p.supplierId]) === null || _a === void 0 ? void 0 : _a.name) || "مورد غير معروف" }));
         });
         // جلب المبيعات
-        const sellsSnapshot = yield (0, database_1.get)((0, database_1.ref)(firebaseConfig_1.database, "sells"));
+        const sellsSnapshot = yield (0, database_2.get)((0, database_2.ref)(firebaseConfig_1.database, "sells"));
         const sellsData = sellsSnapshot.exists() ? sellsSnapshot.val() : {};
-        const customerSnapshot = yield (0, database_1.get)((0, database_1.ref)(firebaseConfig_1.database, "customer"));
+        const customerSnapshot = yield (0, database_2.get)((0, database_2.ref)(firebaseConfig_1.database, "customer"));
         const customerData = customerSnapshot.exists()
             ? customerSnapshot.val()
             : {};
@@ -119,11 +121,11 @@ const getProductById = (req, res) => __awaiter(void 0, void 0, void 0, function*
 exports.getProductById = getProductById;
 const create = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const newProduct = req.body;
+        const newProduct = (0, numbers_1.normalizeNumbers)(req.body);
         if (!newProduct.warehouse)
             return res.status(400).json({ message: "warehouse is required" });
         const NowDate = new Date().toLocaleString();
-        const warehouseRef = (0, database_1.ref)(firebaseConfig_1.database, `products/${newProduct.warehouse}`);
+        const warehouseRef = (0, database_2.ref)(firebaseConfig_1.database, `products/${newProduct.warehouse}`);
         const newRef = (0, database_1.push)(warehouseRef);
         const productData = Object.assign(Object.assign({}, newProduct), { id: newRef.key, updatedDate: NowDate });
         yield (0, database_1.set)(newRef, productData);
@@ -141,9 +143,10 @@ const create = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
 exports.create = create;
 // ✅ تحديث كمية المنتج بعد بيع داخليًا
 const updateQuantityOnSell = (productId, warehouse, soldQuantity) => __awaiter(void 0, void 0, void 0, function* () {
-    const productRef = (0, database_1.ref)(firebaseConfig_1.database, `products/${warehouse}/${productId}`);
+    soldQuantity = (0, numbers_1.roundNumber)(soldQuantity);
+    const productRef = (0, database_2.ref)(firebaseConfig_1.database, `products/${warehouse}/${productId}`);
     console.log(soldQuantity);
-    const snapshot = yield (0, database_1.get)(productRef);
+    const snapshot = yield (0, database_2.get)(productRef);
     if (!snapshot.exists())
         return null;
     const existingProduct = snapshot.val();
@@ -153,7 +156,7 @@ const updateQuantityOnSell = (productId, warehouse, soldQuantity) => __awaiter(v
     }
     console.log(existingProduct);
     fetchReset();
-    const newQuantity = existingProduct.quantity - soldQuantity;
+    const newQuantity = (0, numbers_1.roundNumber)((0, numbers_1.decimal)(existingProduct.quantity).minus(soldQuantity));
     existingProduct.quantity = newQuantity;
     existingProduct.updatedDate = new Date().toLocaleString();
     console.log(existingProduct);
@@ -165,7 +168,7 @@ const updateProduct = (req, res) => __awaiter(void 0, void 0, void 0, function* 
     try {
         const { id } = req.params;
         const updatedFields = req.body;
-        const snapshot = yield (0, database_1.get)((0, database_1.ref)(firebaseConfig_1.database, "products"));
+        const snapshot = yield (0, database_2.get)((0, database_2.ref)(firebaseConfig_1.database, "products"));
         if (!snapshot.exists())
             return res.status(404).json({ message: "المنتج غير موجود" });
         const warehouses = snapshot.val();
@@ -174,7 +177,7 @@ const updateProduct = (req, res) => __awaiter(void 0, void 0, void 0, function* 
             for (const productId in warehouses[warehouse]) {
                 if (productId === id) {
                     const newData = Object.assign(Object.assign(Object.assign({}, warehouses[warehouse][productId]), updatedFields), { updatedDate: new Date().toLocaleString() });
-                    yield (0, database_1.set)((0, database_1.ref)(firebaseConfig_1.database, `products/${warehouse}/${productId}`), newData);
+                    yield (0, database_1.set)((0, database_2.ref)(firebaseConfig_1.database, `products/${warehouse}/${productId}`), newData);
                     return res.json({ message: "تم تحديث المنتج", data: newData });
                 }
             }
@@ -190,14 +193,14 @@ exports.updateProduct = updateProduct;
 const deleteProduct = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { id } = req.params;
-        const snapshot = yield (0, database_1.get)((0, database_1.ref)(firebaseConfig_1.database, "products"));
+        const snapshot = yield (0, database_2.get)((0, database_2.ref)(firebaseConfig_1.database, "products"));
         if (!snapshot.exists())
             return res.status(404).json({ message: "المنتج غير موجود" });
         const warehouses = snapshot.val();
         for (const warehouse in warehouses) {
             for (const productId in warehouses[warehouse]) {
                 if (productId === id) {
-                    yield (0, database_1.remove)((0, database_1.ref)(firebaseConfig_1.database, `products/${warehouse}/${productId}`));
+                    yield (0, database_2.remove)((0, database_2.ref)(firebaseConfig_1.database, `products/${warehouse}/${productId}`));
                     return res.json({ message: "تم حذف المنتج" });
                 }
             }
@@ -212,11 +215,12 @@ const deleteProduct = (req, res) => __awaiter(void 0, void 0, void 0, function* 
 });
 exports.deleteProduct = deleteProduct;
 const createOrUpdateProductInternal = (newProduct) => __awaiter(void 0, void 0, void 0, function* () {
+    newProduct = (0, numbers_1.normalizeNumbers)(newProduct);
     const NowDate = new Date().toLocaleString();
     const warehousePath = `products/${newProduct.warehouse}`;
-    const warehouseRef = (0, database_1.ref)(firebaseConfig_1.database, warehousePath);
+    const warehouseRef = (0, database_2.ref)(firebaseConfig_1.database, warehousePath);
     // 1) قراءة كل المنتجات داخل نفس المستودع
-    const snapshot = yield (0, database_1.get)(warehouseRef);
+    const snapshot = yield (0, database_2.get)(warehouseRef);
     if (snapshot.exists()) {
         const products = snapshot.val();
         // 2) البحث عن منتج بنفس code
@@ -224,9 +228,9 @@ const createOrUpdateProductInternal = (newProduct) => __awaiter(void 0, void 0, 
             const existingProduct = products[productId];
             if (existingProduct.code === newProduct.code) {
                 // تحديث المنتج
-                const updatedProduct = Object.assign(Object.assign(Object.assign({}, existingProduct), newProduct), { quantity: existingProduct.quantity + newProduct.quantity, updatedDate: NowDate, id: productId });
+                const updatedProduct = Object.assign(Object.assign(Object.assign({}, existingProduct), newProduct), { quantity: (0, numbers_1.roundNumber)((0, numbers_1.decimal)(existingProduct.quantity).plus(newProduct.quantity)), updatedDate: NowDate, id: productId });
                 // حفظ التحديث
-                yield (0, database_1.set)((0, database_1.ref)(firebaseConfig_1.database, `${warehousePath}/${productId}`), updatedProduct);
+                yield (0, database_1.set)((0, database_2.ref)(firebaseConfig_1.database, `${warehousePath}/${productId}`), updatedProduct);
                 return updatedProduct;
             }
         }
@@ -244,7 +248,7 @@ const getProductByIdInternal = (id) => __awaiter(void 0, void 0, void 0, functio
     try {
         if (!id)
             return { message: "product id is required" };
-        const productsSnapshot = yield (0, database_1.get)((0, database_1.ref)(firebaseConfig_1.database, "products"));
+        const productsSnapshot = yield (0, database_2.get)((0, database_2.ref)(firebaseConfig_1.database, "products"));
         if (!productsSnapshot.exists())
             return { message: "المنتج غير موجود" };
         const warehouses = productsSnapshot.val();
@@ -276,7 +280,7 @@ const getByWarehouse = (req, res) => __awaiter(void 0, void 0, void 0, function*
     try {
         const { warehouse } = req.body;
         console.log(warehouse);
-        const productsSnapshot = yield (0, database_1.get)((0, database_1.ref)(firebaseConfig_1.database, `products/${warehouse}`));
+        const productsSnapshot = yield (0, database_2.get)((0, database_2.ref)(firebaseConfig_1.database, `products/${warehouse}`));
         if (!productsSnapshot.exists()) {
             return res.json({ products: [] });
         }

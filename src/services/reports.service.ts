@@ -1,3 +1,4 @@
+import { roundNumber } from "../utils/numbers";
 import { get, ref } from "firebase/database";
 import { database } from "../firebaseConfig";
 
@@ -148,7 +149,7 @@ const toNumber = (value: unknown) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
-const n2 = (value: unknown) => Number(toNumber(value).toFixed(2));
+const n2 = (value: unknown) => roundNumber(toNumber(value));
 
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 

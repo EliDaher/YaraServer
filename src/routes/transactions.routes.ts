@@ -1,5 +1,6 @@
 import express, { Request, Response } from "express";
-import { push, ref, set } from "firebase/database";
+import { ref } from "firebase/database";
+import { push, set } from "../utils/database";
 import {
   customerPayment,
   handleCustomerReturn,

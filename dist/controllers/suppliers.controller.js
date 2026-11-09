@@ -10,29 +10,16 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getSupplierById = exports.getSupplierByIdInternal = exports.getAllsupplierInternal = exports.deleteSupplierInternal = exports.updateSupplierBalanceInternal = exports.updateSupplierInternal = exports.updateSupplierInfo = exports.createSupplierInternal = exports.create = exports.getAll = void 0;
+const numbers_1 = require("../utils/numbers");
+const database_1 = require("../utils/database");
 const uuid_1 = require("uuid");
-const database_1 = require("firebase/database");
+const database_2 = require("firebase/database");
 const firebaseConfig_1 = require("../firebaseConfig");
-const toSafeSingleDecimalAmount = (value) => {
-    if (typeof value === "number") {
-        return Number.isFinite(value) ? Math.trunc(value * 10) / 10 : 0;
-    }
-    if (typeof value === "string") {
-        const trimmedValue = value.trim();
-        if (!trimmedValue)
-            return 0;
-        const amountMatch = trimmedValue.match(/^([+-]?\d+)(?:[.,](\d))?/);
-        if (!amountMatch)
-            return 0;
-        const parsedValue = Number(`${amountMatch[1]}${amountMatch[2] ? `.${amountMatch[2]}` : ""}`);
-        return Number.isFinite(parsedValue) ? parsedValue : 0;
-    }
-    return 0;
-};
+const toAmount = (value) => (0, numbers_1.roundNumber)(value == null || value === "" ? 0 : value);
 // ✅ جلب جميع الموردين
 const getAll = (_req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const snapshot = yield (0, database_1.get)((0, database_1.ref)(firebaseConfig_1.database, "supplier"));
+        const snapshot = yield (0, database_2.get)((0, database_2.ref)(firebaseConfig_1.database, "supplier"));
         const suppliers = snapshot.exists() ? Object.values(snapshot.val()) : [];
         res.json(suppliers);
     }
@@ -49,7 +36,7 @@ const create = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
         const newSupplier = req.body;
         const id = (0, uuid_1.v4)();
         const SupplierToAdd = Object.assign(Object.assign({}, newSupplier), { id, createdDate: now, updatedDate: now });
-        yield (0, database_1.set)((0, database_1.ref)(firebaseConfig_1.database, `supplier/${id}`), SupplierToAdd);
+        yield (0, database_1.set)((0, database_2.ref)(firebaseConfig_1.database, `supplier/${id}`), SupplierToAdd);
         res.json({ message: "✅ تم إنشاء المورد", data: SupplierToAdd });
     }
     catch (error) {
@@ -63,15 +50,15 @@ const createSupplierInternal = (newSupplier) => __awaiter(void 0, void 0, void 0
     const id = (0, uuid_1.v4)();
     const now = new Date().toLocaleString();
     const supplier = Object.assign(Object.assign({}, newSupplier), { id, createdDate: now, updatedDate: now });
-    yield (0, database_1.set)((0, database_1.ref)(firebaseConfig_1.database, `supplier/${id}`), supplier);
+    yield (0, database_1.set)((0, database_2.ref)(firebaseConfig_1.database, `supplier/${id}`), supplier);
     return supplier;
 });
 exports.createSupplierInternal = createSupplierInternal;
 const updateSupplierInfo = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const { id } = req.params;
     const updates = req.body;
-    const dbRef = (0, database_1.ref)(firebaseConfig_1.database, `supplier/${id}`);
-    const snapshot = yield (0, database_1.get)(dbRef);
+    const dbRef = (0, database_2.ref)(firebaseConfig_1.database, `supplier/${id}`);
+    const snapshot = yield (0, database_2.get)(dbRef);
     if (!snapshot.exists()) {
         res.status(404).json({ error: "Supplier not found" });
         return null;
@@ -90,23 +77,23 @@ const updateSupplierInternal = (id, sellUpdates, paymentUpdates) => __awaiter(vo
     const supplierId = typeof id === "string" ? id : id.id;
     if (!supplierId)
         throw new Error("Invalid supplier id");
-    const supplierRef = (0, database_1.ref)(firebaseConfig_1.database, `supplier/${supplierId}`);
-    const snapshot = yield (0, database_1.get)(supplierRef);
+    const supplierRef = (0, database_2.ref)(firebaseConfig_1.database, `supplier/${supplierId}`);
+    const snapshot = yield (0, database_2.get)(supplierRef);
     if (!snapshot.exists())
         return null;
     const supplier = snapshot.val();
     const now = new Date().toLocaleString();
     if (sellUpdates) {
-        const currentBalance = toSafeSingleDecimalAmount(supplier.balance);
-        const remainingDebt = toSafeSingleDecimalAmount(sellUpdates.remainingDebt);
-        const updatedSupplier = Object.assign(Object.assign({}, supplier), { balance: currentBalance + remainingDebt, purchases: [...(supplier.purchases || []), sellUpdates.id || ""], updatedDate: now });
+        const currentBalance = Number(supplier.balance || 0);
+        const remainingDebt = toAmount(sellUpdates.remainingDebt);
+        const updatedSupplier = Object.assign(Object.assign({}, supplier), { balance: (0, numbers_1.roundNumber)((0, numbers_1.decimal)(currentBalance).plus(remainingDebt)), purchases: [...(supplier.purchases || []), sellUpdates.id || ""], updatedDate: now });
         yield (0, database_1.set)(supplierRef, updatedSupplier);
         return updatedSupplier;
     }
     if (paymentUpdates) {
-        const currentBalance = toSafeSingleDecimalAmount(supplier.balance);
-        const paymentAmount = toSafeSingleDecimalAmount(paymentUpdates.amount);
-        const updatedSupplier = Object.assign(Object.assign({}, supplier), { balance: currentBalance + paymentAmount, updatedDate: now });
+        const currentBalance = Number(supplier.balance || 0);
+        const paymentAmount = toAmount(paymentUpdates.amount);
+        const updatedSupplier = Object.assign(Object.assign({}, supplier), { balance: (0, numbers_1.roundNumber)((0, numbers_1.decimal)(currentBalance).plus(paymentAmount)), updatedDate: now });
         yield (0, database_1.set)(supplierRef, updatedSupplier);
         return updatedSupplier;
     }
@@ -115,37 +102,37 @@ const updateSupplierInternal = (id, sellUpdates, paymentUpdates) => __awaiter(vo
 exports.updateSupplierInternal = updateSupplierInternal;
 // تحديث الرصيد داخليًا
 const updateSupplierBalanceInternal = (id, amountChange) => __awaiter(void 0, void 0, void 0, function* () {
-    const supplierRef = (0, database_1.ref)(firebaseConfig_1.database, `supplier/${id}`);
-    const snapshot = yield (0, database_1.get)(supplierRef);
+    const supplierRef = (0, database_2.ref)(firebaseConfig_1.database, `supplier/${id}`);
+    const snapshot = yield (0, database_2.get)(supplierRef);
     if (!snapshot.exists())
         return null;
     const supplier = snapshot.val();
-    const currentBalance = toSafeSingleDecimalAmount(supplier.balance);
-    const safeAmountChange = toSafeSingleDecimalAmount(amountChange);
-    const updatedSupplier = Object.assign(Object.assign({}, supplier), { balance: currentBalance + safeAmountChange, updatedDate: new Date().toLocaleString() });
+    const currentBalance = Number(supplier.balance || 0);
+    const safeAmountChange = toAmount(amountChange);
+    const updatedSupplier = Object.assign(Object.assign({}, supplier), { balance: (0, numbers_1.roundNumber)((0, numbers_1.decimal)(currentBalance).plus(safeAmountChange)), updatedDate: new Date().toLocaleString() });
     yield (0, database_1.set)(supplierRef, updatedSupplier);
     return updatedSupplier;
 });
 exports.updateSupplierBalanceInternal = updateSupplierBalanceInternal;
 // حذف مورد داخلي
 const deleteSupplierInternal = (id) => __awaiter(void 0, void 0, void 0, function* () {
-    const supplierRef = (0, database_1.ref)(firebaseConfig_1.database, `supplier/${id}`);
-    const snapshot = yield (0, database_1.get)(supplierRef);
+    const supplierRef = (0, database_2.ref)(firebaseConfig_1.database, `supplier/${id}`);
+    const snapshot = yield (0, database_2.get)(supplierRef);
     if (!snapshot.exists())
         return false;
-    yield (0, database_1.remove)(supplierRef);
+    yield (0, database_2.remove)(supplierRef);
     return true;
 });
 exports.deleteSupplierInternal = deleteSupplierInternal;
 // جلب جميع الموردين داخليًا
 const getAllsupplierInternal = () => __awaiter(void 0, void 0, void 0, function* () {
-    const snapshot = yield (0, database_1.get)((0, database_1.ref)(firebaseConfig_1.database, "supplier"));
+    const snapshot = yield (0, database_2.get)((0, database_2.ref)(firebaseConfig_1.database, "supplier"));
     return snapshot.exists() ? Object.values(snapshot.val()) : [];
 });
 exports.getAllsupplierInternal = getAllsupplierInternal;
 // جلب مورد واحد داخليًا
 const getSupplierByIdInternal = (id) => __awaiter(void 0, void 0, void 0, function* () {
-    const snapshot = yield (0, database_1.get)((0, database_1.ref)(firebaseConfig_1.database, `supplier/${id}`));
+    const snapshot = yield (0, database_2.get)((0, database_2.ref)(firebaseConfig_1.database, `supplier/${id}`));
     return snapshot.exists() ? snapshot.val() : null;
 });
 exports.getSupplierByIdInternal = getSupplierByIdInternal;
@@ -154,7 +141,7 @@ const getSupplierById = (req, res) => __awaiter(void 0, void 0, void 0, function
     var _a;
     try {
         const { id } = req.body;
-        const snapshot = yield (0, database_1.get)((0, database_1.ref)(firebaseConfig_1.database, `supplier/${id}`));
+        const snapshot = yield (0, database_2.get)((0, database_2.ref)(firebaseConfig_1.database, `supplier/${id}`));
         if (!snapshot.exists()) {
             return res.status(404).json({ error: "Supplier not found" });
         }
@@ -168,11 +155,11 @@ const getSupplierById = (req, res) => __awaiter(void 0, void 0, void 0, function
             return (match === null || match === void 0 ? void 0 : match[0]) || purchase.productId || purchase.code;
         };
         const formatPurchase = (purchase, productsData) => (Object.assign(Object.assign({}, purchase), { supplierId: normalizeId(purchase.supplierId), productId: findProductId(purchase, productsData), transferCost: Number(purchase.transferCost || 0) }));
-        const purchasesSnapshot = yield (0, database_1.get)((0, database_1.ref)(firebaseConfig_1.database, "purchases"));
+        const purchasesSnapshot = yield (0, database_2.get)((0, database_2.ref)(firebaseConfig_1.database, "purchases"));
         const purchasesData = purchasesSnapshot.exists()
             ? purchasesSnapshot.val()
             : {};
-        const productsSnapshot = yield (0, database_1.get)((0, database_1.ref)(firebaseConfig_1.database, "products"));
+        const productsSnapshot = yield (0, database_2.get)((0, database_2.ref)(firebaseConfig_1.database, "products"));
         const productsData = productsSnapshot.exists() ? productsSnapshot.val() : {};
         const purchasesById = new Map();
         Object.values(purchasesData)
@@ -189,7 +176,7 @@ const getSupplierById = (req, res) => __awaiter(void 0, void 0, void 0, function
         });
         const purchases = Array.from(purchasesById.values());
         // جلب المدفوعات
-        const paymentSnapshot = yield (0, database_1.get)((0, database_1.ref)(firebaseConfig_1.database, "payment"));
+        const paymentSnapshot = yield (0, database_2.get)((0, database_2.ref)(firebaseConfig_1.database, "payment"));
         const paymentsData = paymentSnapshot.exists()
             ? Object.values(paymentSnapshot.val())
             : [];

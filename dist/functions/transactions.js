@@ -10,7 +10,9 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.warehouseTransfer = exports.handleCustomerReturn = exports.handleSupplierReturn = exports.supplierPayment = exports.customerPayment = exports.handleSell = exports.handlePurchase = void 0;
-const database_1 = require("firebase/database");
+const numbers_1 = require("../utils/numbers");
+const database_1 = require("../utils/database");
+const database_2 = require("firebase/database");
 const customer_controller_1 = require("../controllers/customer.controller");
 const payments_controller_1 = require("../controllers/payments.controller");
 const products_controller_1 = require("../controllers/products.controller");
@@ -22,6 +24,8 @@ const transfer_controller_1 = require("../controllers/transfer.controller");
 const firebaseConfig_1 = require("../firebaseConfig");
 // ✅ عند تنفيذ عملية شراء
 const handlePurchase = (_a) => __awaiter(void 0, [_a], void 0, function* ({ newPurchase, newProduct, executer, }) {
+    newPurchase = (0, numbers_1.normalizeNumbers)(newPurchase);
+    newProduct = (0, numbers_1.normalizeNumbers)(newProduct);
     // 1- تسجيل عملية الشراء
     const normalizedExecuter = executer || "Unknown";
     const purchaseWithExecuter = Object.assign(Object.assign({}, newPurchase), { executer: normalizedExecuter });
@@ -39,12 +43,11 @@ const handlePurchase = (_a) => __awaiter(void 0, [_a], void 0, function* ({ newP
             source: "generated",
             balanceApplied: false,
             supplierId: purchaseData.supplierId,
-            amount: -(purchaseData.totalPrice - purchaseData.remainingDebt),
+            amount: -((0, numbers_1.roundNumber)((0, numbers_1.decimal)(purchaseData.totalPrice).minus(purchaseData.remainingDebt))),
             note: `${newProduct.name} دفعة من ثمن شراء`,
             currency: newPurchase.currency,
             exchangeRate: newPurchase.exchangeRate,
-            amount_base: -(newPurchase.exchangeRate *
-                (purchaseData.totalPrice - purchaseData.remainingDebt)),
+            amount_base: -((0, numbers_1.decimal)(newPurchase.exchangeRate).times((0, numbers_1.roundNumber)((0, numbers_1.decimal)(purchaseData.totalPrice).minus(purchaseData.remainingDebt))).toNumber()),
             date: purchaseData.date,
             executer: normalizedExecuter,
         });
@@ -60,7 +63,7 @@ const handlePurchase = (_a) => __awaiter(void 0, [_a], void 0, function* ({ newP
             note: `${newProduct.name} دفع كامل ثمن شراء`,
             currency: newPurchase.currency,
             exchangeRate: newPurchase.exchangeRate,
-            amount_base: -(newPurchase.exchangeRate * purchaseData.totalPrice),
+            amount_base: -((0, numbers_1.decimal)(newPurchase.exchangeRate).times(purchaseData.totalPrice).toNumber()),
             date: purchaseData.date,
             executer: normalizedExecuter,
         });
@@ -77,7 +80,7 @@ const handlePurchase = (_a) => __awaiter(void 0, [_a], void 0, function* ({ newP
             note: `${newProduct.name} transfer/shipping cost`,
             currency: newPurchase.currency,
             exchangeRate: newPurchase.exchangeRate,
-            amount_base: -(newPurchase.exchangeRate * transferCost),
+            amount_base: -((0, numbers_1.decimal)(newPurchase.exchangeRate).times(transferCost).toNumber()),
             date: purchaseData.date,
             executer: normalizedExecuter,
         });
@@ -88,15 +91,16 @@ exports.handlePurchase = handlePurchase;
 // ✅ عند تنفيذ عملية بيع
 const handleSell = (_a) => __awaiter(void 0, [_a], void 0, function* ({ newSell, executer, }) {
     try {
+        newSell = (0, numbers_1.normalizeNumbers)(newSell);
         // 1- تسجيل عملية البيع
         const normalizedExecuter = executer || "Unknown";
         const sellWithExecuter = Object.assign(Object.assign({}, newSell), { executer: normalizedExecuter });
         const sellData = yield (0, sells_controller_1.createSellInternal)(sellWithExecuter);
         // 2- تحديث مخزون المنتجات
         console.log(newSell);
-        newSell.products.forEach((p) => __awaiter(void 0, void 0, void 0, function* () {
+        for (const p of sellData.products) {
             yield (0, products_controller_1.updateQuantityOnSell)(p.id, p.warehouse, p.qty);
-        }));
+        }
         // 3- تعديل رصيد المورد (إضافة دين جديد)
         yield (0, customer_controller_1.updateCustomerInternal)(sellData.customerId, sellData);
         if (sellData.remainingDebt == 0) {
@@ -109,7 +113,7 @@ const handleSell = (_a) => __awaiter(void 0, [_a], void 0, function* ({ newSell,
                 note: `دفع كامل ثمن بيع`,
                 currency: sellData.currency,
                 exchangeRate: sellData.exchangeRate,
-                amount_base: sellData.exchangeRate * sellData.totalPrice,
+                amount_base: (0, numbers_1.decimal)(sellData.exchangeRate).times(sellData.totalPrice).toNumber(),
                 date: sellData.date,
                 executer: normalizedExecuter,
             });
@@ -121,13 +125,12 @@ const handleSell = (_a) => __awaiter(void 0, [_a], void 0, function* ({ newSell,
                 source: "generated",
                 balanceApplied: false,
                 customerId: sellData.customerId,
-                amount: sellData.totalPrice - sellData.remainingDebt,
+                amount: (0, numbers_1.roundNumber)((0, numbers_1.decimal)(sellData.totalPrice).minus(sellData.remainingDebt)),
                 note: `دفعه من ثمن بيع`,
                 currency: sellData.currency,
                 exchangeRate: sellData.exchangeRate,
                 amount_base: sellData.partValue ||
-                    sellData.exchangeRate *
-                        (sellData.totalPrice - sellData.remainingDebt),
+                    (0, numbers_1.decimal)(sellData.exchangeRate).times((0, numbers_1.roundNumber)((0, numbers_1.decimal)(sellData.totalPrice).minus(sellData.remainingDebt))).toNumber(),
                 date: sellData.date,
                 executer: normalizedExecuter,
             });
@@ -146,7 +149,7 @@ const customerPayment = (paymentData, executer) => __awaiter(void 0, void 0, voi
     const data = yield (0, payments_controller_1.createPaymentInternal)(Object.assign(Object.assign({}, paymentData), { source: "manual", balanceApplied: true, executer: executer || "Unknown" }));
     // 2- تحديث رصيد العميل
     if (data.customerId) {
-        yield (0, customer_controller_1.updateCustomerInternal)(data.customerId, undefined, paymentData);
+        yield (0, customer_controller_1.updateCustomerInternal)(data.customerId, undefined, data);
     }
     return data;
 });
@@ -156,13 +159,14 @@ const supplierPayment = (paymentData, executer) => __awaiter(void 0, void 0, voi
     const data = yield (0, payments_controller_1.createPaymentInternal)(Object.assign(Object.assign({}, paymentData), { source: "manual", balanceApplied: true, executer: executer || "Unknown" }));
     // 2- تحديث رصيد المورد
     if (data.supplierId) {
-        yield (0, suppliers_controller_1.updateSupplierInternal)(data.supplierId, undefined, paymentData);
+        yield (0, suppliers_controller_1.updateSupplierInternal)(data.supplierId, undefined, data);
     }
     return data;
 });
 exports.supplierPayment = supplierPayment;
 const handleSupplierReturn = (newReturn) => __awaiter(void 0, void 0, void 0, function* () {
     try {
+        newReturn = (0, numbers_1.normalizeNumbers)(newReturn);
         const returnQty = Math.abs(Number(newReturn.qty || 0));
         if (!returnQty) {
             throw new Error("Invalid return quantity");
@@ -171,7 +175,7 @@ const handleSupplierReturn = (newReturn) => __awaiter(void 0, void 0, void 0, fu
         if (!purchase) {
             throw new Error("Purchase not found");
         }
-        const updatedQuantity = Number(purchase.quantity || 0) - returnQty;
+        const updatedQuantity = (0, numbers_1.roundNumber)((0, numbers_1.decimal)(purchase.quantity || 0).minus(returnQty));
         if (updatedQuantity < 0) {
             throw new Error("Return quantity exceeds purchase quantity");
         }
@@ -201,7 +205,7 @@ const handleSupplierReturn = (newReturn) => __awaiter(void 0, void 0, void 0, fu
             balanceChange = -newReturn.returnValue;
         }
         else if (newReturn.returnType === "part") {
-            balanceChange = -(newReturn.returnValue - newReturn.partValue);
+            balanceChange = -((0, numbers_1.roundNumber)((0, numbers_1.decimal)(newReturn.returnValue).minus(newReturn.partValue)));
         }
         yield (0, suppliers_controller_1.updateSupplierBalanceInternal)(newReturn.supplierId, balanceChange);
         // 4️⃣ تعديل الكمية في الفاتورة
@@ -263,11 +267,12 @@ const normalizeCustomerReturnItems = (newReturn) => {
     });
 };
 const handleCustomerReturn = (newReturn) => __awaiter(void 0, void 0, void 0, function* () {
+    newReturn = (0, numbers_1.normalizeNumbers)(newReturn);
     if (!newReturn.customerId || !newReturn.referenceId || !newReturn.returnType) {
         throw new Error("customerId, referenceId, and returnType are required");
     }
     const items = normalizeCustomerReturnItems(newReturn);
-    const totalReturnValue = items.reduce((sum, item) => sum + Number(item.returnValue || 0), 0);
+    const totalReturnValue = (0, numbers_1.roundNumber)(items.reduce((sum, item) => sum.plus(item.returnValue || 0), (0, numbers_1.decimal)(0)));
     const partValue = Number(newReturn.partValue || 0);
     if (newReturn.returnType === "part") {
         if (partValue <= 0) {
@@ -278,8 +283,8 @@ const handleCustomerReturn = (newReturn) => __awaiter(void 0, void 0, void 0, fu
         }
     }
     // 1) Pre-validate everything first (all-or-none at validation stage)
-    const sellRef = (0, database_1.ref)(firebaseConfig_1.database, `sells/${newReturn.referenceId}`);
-    const sellSnap = yield (0, database_1.get)(sellRef);
+    const sellRef = (0, database_2.ref)(firebaseConfig_1.database, `sells/${newReturn.referenceId}`);
+    const sellSnap = yield (0, database_2.get)(sellRef);
     if (!sellSnap.exists()) {
         throw new Error("Sale invoice not found");
     }
@@ -293,7 +298,7 @@ const handleCustomerReturn = (newReturn) => __awaiter(void 0, void 0, void 0, fu
         const key = `${item.productCode}::${item.warehouse}`;
         const current = requestedBySellLine.get(key);
         if (current) {
-            current.qty += item.qty;
+            current.qty = (0, numbers_1.roundNumber)((0, numbers_1.decimal)(current.qty).plus(item.qty));
         }
         else {
             requestedBySellLine.set(key, {
@@ -314,7 +319,7 @@ const handleCustomerReturn = (newReturn) => __awaiter(void 0, void 0, void 0, fu
         soldLineByKey.set(`${requestLine.code}::${requestLine.warehouse}`, soldLine);
     }
     for (const item of items) {
-        const productSnap = yield (0, database_1.get)((0, database_1.ref)(firebaseConfig_1.database, `products/${item.warehouse}/${item.productId}`));
+        const productSnap = yield (0, database_2.get)((0, database_2.ref)(firebaseConfig_1.database, `products/${item.warehouse}/${item.productId}`));
         if (!productSnap.exists()) {
             throw new Error(`Product ${item.productCode} not found in warehouse ${item.warehouse}`);
         }
@@ -372,8 +377,11 @@ const handleCustomerReturn = (newReturn) => __awaiter(void 0, void 0, void 0, fu
         balanceChange = totalReturnValue;
     }
     else if (newReturn.returnType === "part") {
-        balanceChange = totalReturnValue - partValue;
+        balanceChange = (0, numbers_1.roundNumber)((0, numbers_1.decimal)(totalReturnValue).minus(partValue));
     }
+    yield (0, database_1.update)(sellRef, {
+        remainingDebt: (0, numbers_1.roundNumber)((0, numbers_1.decimal)(sellData.remainingDebt || 0).minus(balanceChange)),
+    });
     if (balanceChange !== 0) {
         yield (0, customer_controller_1.updateCustomerBalanceInternal)(newReturn.customerId, balanceChange);
     }
@@ -395,8 +403,9 @@ const warehouseTransfer = (transferData) => __awaiter(void 0, void 0, void 0, fu
         if (product === null || product === void 0 ? void 0 : product.message) {
             return product === null || product === void 0 ? void 0 : product.message;
         }
+        transferData = (0, numbers_1.normalizeNumbers)(transferData);
         const currentStock = Number(product.product.quantity || 0);
-        const stockAfter = currentStock - transferData.quantity;
+        const stockAfter = (0, numbers_1.roundNumber)((0, numbers_1.decimal)(currentStock).minus(transferData.quantity));
         if (stockAfter < 0) {
             throw new Error("❌ الكمية غير كافية في المستودع");
         }

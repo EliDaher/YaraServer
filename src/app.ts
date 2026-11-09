@@ -1,3 +1,4 @@
+import { normalizeNumbers } from "./utils/numbers";
 import express from "express";
 import cors from "cors";
 import routes from "./routes/index";
@@ -7,6 +8,10 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+app.use((req, res, next) => {
+  try { req.body = normalizeNumbers(req.body); next(); }
+  catch { res.status(400).json({ message: "Invalid numeric value" }); }
+});
 app.use(morgan("dev"));
 
 app.use("/api", routes);

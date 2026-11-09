@@ -14,6 +14,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
 const database_1 = require("firebase/database");
+const database_2 = require("../utils/database");
 const transactions_1 = require("../functions/transactions");
 const sells_controller_1 = require("../controllers/sells.controller");
 const customer_controller_1 = require("../controllers/customer.controller");
@@ -129,9 +130,9 @@ router.post("/afterSellDiscount", (req, res) => __awaiter(void 0, void 0, void 0
         yield (0, sells_controller_1.addAfterSellDiscountInternal)({ sellId, discount });
         yield (0, customer_controller_1.updateCustomerBalanceInternal)(customerId, discount);
         const executer = getExecuter(req) || "Unknown";
-        const operationRef = (0, database_1.push)((0, database_1.ref)(firebaseConfig_1.database, "discountOperations"));
+        const operationRef = (0, database_2.push)((0, database_1.ref)(firebaseConfig_1.database, "discountOperations"));
         const operationId = operationRef.key || `discount-${Date.now()}`;
-        yield (0, database_1.set)(operationRef, {
+        yield (0, database_2.set)(operationRef, {
             id: operationId,
             type: "after_sell_discount",
             executer,

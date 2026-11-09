@@ -10,8 +10,9 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.deletePayment = exports.createPaymentInternal = exports.createPayment = exports.getMonthPayments = exports.getAll = void 0;
+const database_1 = require("../utils/database");
 const uuid_1 = require("uuid");
-const database_1 = require("firebase/database");
+const database_2 = require("firebase/database");
 const firebaseConfig_1 = require("../firebaseConfig");
 const customer_controller_1 = require("./customer.controller");
 const suppliers_controller_1 = require("./suppliers.controller");
@@ -49,8 +50,8 @@ const shouldReverseBalance = (payment) => {
 // ✅ get all payments as array
 const getAll = (_req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const dbRef = (0, database_1.ref)(firebaseConfig_1.database, "payment");
-        const snapshot = yield (0, database_1.get)(dbRef);
+        const dbRef = (0, database_2.ref)(firebaseConfig_1.database, "payment");
+        const snapshot = yield (0, database_2.get)(dbRef);
         const payments = snapshot.exists() ? Object.values(snapshot.val()) : [];
         res.json(payments);
     }
@@ -67,8 +68,8 @@ const getMonthPayments = (req, res) => __awaiter(void 0, void 0, void 0, functio
         if (!month || !year) {
             return res.status(400).json({ error: "Month and year are required" });
         }
-        const dbRef = (0, database_1.ref)(firebaseConfig_1.database, "payment");
-        const snapshot = yield (0, database_1.get)(dbRef);
+        const dbRef = (0, database_2.ref)(firebaseConfig_1.database, "payment");
+        const snapshot = yield (0, database_2.get)(dbRef);
         const payments = snapshot.exists() ? Object.values(snapshot.val()) : [];
         const filteredPayments = payments.filter((p) => {
             const paymentDate = new Date(p.date);
@@ -91,7 +92,7 @@ const createPayment = (req, res) => __awaiter(void 0, void 0, void 0, function* 
         const id = (0, uuid_1.v4)();
         const now = new Date().toLocaleString();
         const payment = Object.assign(Object.assign({}, newPayment), { id, date: newPayment.date || now, source: newPayment.source || "cashbox", balanceApplied: (_a = newPayment.balanceApplied) !== null && _a !== void 0 ? _a : false });
-        yield (0, database_1.set)((0, database_1.ref)(firebaseConfig_1.database, `payment/${id}`), payment);
+        yield (0, database_1.set)((0, database_2.ref)(firebaseConfig_1.database, `payment/${id}`), payment);
         res.status(201).json(payment);
     }
     catch (error) {
@@ -106,15 +107,15 @@ const createPaymentInternal = (newPayment) => __awaiter(void 0, void 0, void 0, 
     const id = (0, uuid_1.v4)();
     const now = new Date().toLocaleString();
     const payment = Object.assign(Object.assign({}, newPayment), { id, date: newPayment.date || now, source: newPayment.source || "generated", balanceApplied: (_a = newPayment.balanceApplied) !== null && _a !== void 0 ? _a : false });
-    yield (0, database_1.set)((0, database_1.ref)(firebaseConfig_1.database, `payment/${id}`), payment);
+    yield (0, database_1.set)((0, database_2.ref)(firebaseConfig_1.database, `payment/${id}`), payment);
     return payment;
 });
 exports.createPaymentInternal = createPaymentInternal;
 const deletePayment = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { id } = req.params;
-        const paymentRef = (0, database_1.ref)(firebaseConfig_1.database, `payment/${id}`);
-        const snapshot = yield (0, database_1.get)(paymentRef);
+        const paymentRef = (0, database_2.ref)(firebaseConfig_1.database, `payment/${id}`);
+        const snapshot = yield (0, database_2.get)(paymentRef);
         if (!snapshot.exists()) {
             return res.status(404).json({ error: "Payment not found" });
         }
@@ -132,7 +133,7 @@ const deletePayment = (req, res) => __awaiter(void 0, void 0, void 0, function* 
                 yield (0, suppliers_controller_1.updateSupplierBalanceInternal)(payment.supplierId, -Number(payment.amount || 0));
             }
         }
-        yield (0, database_1.remove)(paymentRef);
+        yield (0, database_2.remove)(paymentRef);
         res.json({ message: "Payment deleted successfully", data: payment });
     }
     catch (error) {

@@ -10,16 +10,18 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.updateCustomerBalanceInternal = exports.getCustomerById = exports.getCustomerByIdInternal = exports.getAllcustomerInternal = exports.deleteCustomerInternal = exports.updateCustomerInternal = exports.updateCustomerInfo = exports.createCustomerInternal = exports.create = exports.getAll = void 0;
+const numbers_1 = require("../utils/numbers");
+const database_1 = require("../utils/database");
 const uuid_1 = require("uuid");
-const database_1 = require("firebase/database");
+const database_2 = require("firebase/database");
 const firebaseConfig_1 = require("../firebaseConfig");
 /* =========================================================
    ✅ 1. جلب جميع العملاء
    ========================================================= */
 const getAll = (_req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const dbRef = (0, database_1.ref)(firebaseConfig_1.database, "customer");
-        const snapshot = yield (0, database_1.get)(dbRef);
+        const dbRef = (0, database_2.ref)(firebaseConfig_1.database, "customer");
+        const snapshot = yield (0, database_2.get)(dbRef);
         res.json(snapshot.exists() ? Object.values(snapshot.val()) : []);
     }
     catch (error) {
@@ -36,7 +38,7 @@ const create = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
         const now = new Date().toLocaleString();
         const id = (0, uuid_1.v4)();
         const newCustomer = Object.assign(Object.assign({}, req.body), { id, createdDate: now, updatedDate: now });
-        yield (0, database_1.set)((0, database_1.ref)(firebaseConfig_1.database, `customer/${id}`), newCustomer);
+        yield (0, database_1.set)((0, database_2.ref)(firebaseConfig_1.database, `customer/${id}`), newCustomer);
         res.json({ message: "✅ تم إنشاء العميل", data: newCustomer });
     }
     catch (error) {
@@ -52,7 +54,7 @@ const createCustomerInternal = (newCustomer) => __awaiter(void 0, void 0, void 0
     const id = (0, uuid_1.v4)();
     const now = new Date().toLocaleString();
     const customer = Object.assign(Object.assign({}, newCustomer), { id, createdDate: now, updatedDate: now });
-    yield (0, database_1.set)((0, database_1.ref)(firebaseConfig_1.database, `customer/${id}`), customer);
+    yield (0, database_1.set)((0, database_2.ref)(firebaseConfig_1.database, `customer/${id}`), customer);
     return customer;
 });
 exports.createCustomerInternal = createCustomerInternal;
@@ -62,8 +64,8 @@ const updateCustomerInfo = (
 req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const { id } = req.params;
     const updates = req.body;
-    const dbRef = (0, database_1.ref)(firebaseConfig_1.database, `customer/${id}`);
-    const snapshot = yield (0, database_1.get)(dbRef);
+    const dbRef = (0, database_2.ref)(firebaseConfig_1.database, `customer/${id}`);
+    const snapshot = yield (0, database_2.get)(dbRef);
     if (!snapshot.exists()) {
         res.status(404).json({ error: "Customer not found" });
         return null;
@@ -80,8 +82,8 @@ exports.updateCustomerInfo = updateCustomerInfo;
    ✅ 4. تحديث بيانات العميل داخليًا
    ========================================================= */
 const updateCustomerInternal = (id, sellUpdates, payUpdates) => __awaiter(void 0, void 0, void 0, function* () {
-    const dbRef = (0, database_1.ref)(firebaseConfig_1.database, `customer/${id}`);
-    const snapshot = yield (0, database_1.get)(dbRef);
+    const dbRef = (0, database_2.ref)(firebaseConfig_1.database, `customer/${id}`);
+    const snapshot = yield (0, database_2.get)(dbRef);
     if (!snapshot.exists())
         return null;
     const customer = snapshot.val();
@@ -89,7 +91,7 @@ const updateCustomerInternal = (id, sellUpdates, payUpdates) => __awaiter(void 0
     let updatedCustomer = Object.assign(Object.assign({}, customer), { updatedDate: now });
     if (sellUpdates) {
         updatedCustomer.balance =
-            (customer.balance || 0) - (sellUpdates.remainingDebt || 0);
+            (0, numbers_1.decimal)(customer.balance || 0).minus(sellUpdates.remainingDebt || 0).toNumber();
         updatedCustomer.purchases = [
             ...(customer.purchases || []),
             sellUpdates.id || "",
@@ -97,7 +99,7 @@ const updateCustomerInternal = (id, sellUpdates, payUpdates) => __awaiter(void 0
     }
     else if (payUpdates) {
         updatedCustomer.balance =
-            (customer.balance || 0) + (payUpdates.amount || 0);
+            (0, numbers_1.decimal)(customer.balance || 0).plus(payUpdates.amount || 0).toNumber();
     }
     yield (0, database_1.update)(dbRef, updatedCustomer);
     return updatedCustomer;
@@ -107,11 +109,11 @@ exports.updateCustomerInternal = updateCustomerInternal;
    ✅ 5. حذف عميل داخليًا
    ========================================================= */
 const deleteCustomerInternal = (id) => __awaiter(void 0, void 0, void 0, function* () {
-    const dbRef = (0, database_1.ref)(firebaseConfig_1.database, `customer/${id}`);
-    const snapshot = yield (0, database_1.get)(dbRef);
+    const dbRef = (0, database_2.ref)(firebaseConfig_1.database, `customer/${id}`);
+    const snapshot = yield (0, database_2.get)(dbRef);
     if (!snapshot.exists())
         return false;
-    yield (0, database_1.remove)(dbRef);
+    yield (0, database_2.remove)(dbRef);
     return true;
 });
 exports.deleteCustomerInternal = deleteCustomerInternal;
@@ -119,8 +121,8 @@ exports.deleteCustomerInternal = deleteCustomerInternal;
    ✅ 6. جلب جميع العملاء داخليًا
    ========================================================= */
 const getAllcustomerInternal = () => __awaiter(void 0, void 0, void 0, function* () {
-    const dbRef = (0, database_1.ref)(firebaseConfig_1.database, "customer");
-    const snapshot = yield (0, database_1.get)(dbRef);
+    const dbRef = (0, database_2.ref)(firebaseConfig_1.database, "customer");
+    const snapshot = yield (0, database_2.get)(dbRef);
     return snapshot.exists() ? Object.values(snapshot.val()) : [];
 });
 exports.getAllcustomerInternal = getAllcustomerInternal;
@@ -128,8 +130,8 @@ exports.getAllcustomerInternal = getAllcustomerInternal;
    ✅ 7. جلب عميل واحد داخليًا
    ========================================================= */
 const getCustomerByIdInternal = (id) => __awaiter(void 0, void 0, void 0, function* () {
-    const dbRef = (0, database_1.ref)(firebaseConfig_1.database, `customer/${id}`);
-    const snapshot = yield (0, database_1.get)(dbRef);
+    const dbRef = (0, database_2.ref)(firebaseConfig_1.database, `customer/${id}`);
+    const snapshot = yield (0, database_2.get)(dbRef);
     return snapshot.exists() ? snapshot.val() : null;
 });
 exports.getCustomerByIdInternal = getCustomerByIdInternal;
@@ -142,7 +144,7 @@ const getCustomerById = (req, res) => __awaiter(void 0, void 0, void 0, function
     const { id } = req.body;
     try {
         // 🔹 جلب العميل فقط
-        const customerSnap = yield (0, database_1.get)((0, database_1.ref)(firebaseConfig_1.database, `customer/${id}`));
+        const customerSnap = yield (0, database_2.get)((0, database_2.ref)(firebaseConfig_1.database, `customer/${id}`));
         if (!customerSnap.exists())
             return res.status(404).json({ error: "Customer not found" });
         const customer = customerSnap.val();
@@ -150,14 +152,14 @@ const getCustomerById = (req, res) => __awaiter(void 0, void 0, void 0, function
         let purchases = [];
         if ((_a = customer.purchases) === null || _a === void 0 ? void 0 : _a.length) {
             const promises = customer.purchases.map((pid) => __awaiter(void 0, void 0, void 0, function* () {
-                const pSnap = yield (0, database_1.get)((0, database_1.ref)(firebaseConfig_1.database, `sells/${pid}`));
+                const pSnap = yield (0, database_2.get)((0, database_2.ref)(firebaseConfig_1.database, `sells/${pid}`));
                 return pSnap.exists() ? pSnap.val() : null;
             }));
             purchases = (yield Promise.all(promises)).filter(Boolean);
         }
         // 🔹 جلب مدفوعاته فقط
-        const paymentsRef = (0, database_1.ref)(firebaseConfig_1.database, "payment");
-        const paymentsSnap = yield (0, database_1.get)(paymentsRef);
+        const paymentsRef = (0, database_2.ref)(firebaseConfig_1.database, "payment");
+        const paymentsSnap = yield (0, database_2.get)(paymentsRef);
         const payments = paymentsSnap.exists()
             ? Object.values(paymentsSnap.val()).filter((p) => p.customerId === id)
             : [];
@@ -176,12 +178,12 @@ exports.getCustomerById = getCustomerById;
    ✅ 9. تعديل الرصيد فقط (دون جلب إضافي)
    ========================================================= */
 const updateCustomerBalanceInternal = (id, amountChange) => __awaiter(void 0, void 0, void 0, function* () {
-    const dbRef = (0, database_1.ref)(firebaseConfig_1.database, `customer/${id}`);
-    const snapshot = yield (0, database_1.get)(dbRef);
+    const dbRef = (0, database_2.ref)(firebaseConfig_1.database, `customer/${id}`);
+    const snapshot = yield (0, database_2.get)(dbRef);
     if (!snapshot.exists())
         return null;
     const customer = snapshot.val();
-    const updatedCustomer = Object.assign(Object.assign({}, customer), { balance: (customer.balance || 0) + amountChange, updatedDate: new Date().toLocaleString() });
+    const updatedCustomer = Object.assign(Object.assign({}, customer), { balance: (0, numbers_1.roundNumber)((0, numbers_1.decimal)(customer.balance || 0).plus((0, numbers_1.roundNumber)(amountChange))), updatedDate: new Date().toLocaleString() });
     yield (0, database_1.update)(dbRef, updatedCustomer);
     return updatedCustomer;
 });

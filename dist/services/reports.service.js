@@ -21,6 +21,7 @@ var __rest = (this && this.__rest) || function (s, e) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.buildTodayOverviewV2 = exports.buildTodayOverview = exports.buildSalesReport = void 0;
+const numbers_1 = require("../utils/numbers");
 const database_1 = require("firebase/database");
 const firebaseConfig_1 = require("../firebaseConfig");
 const DEFAULT_TIMEZONE = "Asia/Damascus";
@@ -34,7 +35,7 @@ const toNumber = (value) => {
     const parsed = Number(value !== null && value !== void 0 ? value : 0);
     return Number.isFinite(parsed) ? parsed : 0;
 };
-const n2 = (value) => Number(toNumber(value).toFixed(2));
+const n2 = (value) => (0, numbers_1.roundNumber)(toNumber(value));
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const parseDateOnly = (value) => {
     const input = asString(value);

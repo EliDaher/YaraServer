@@ -1,7 +1,8 @@
+import { set } from "../utils/database";
 import { v4 as uuidv4 } from "uuid";
 import { Request, Response } from "express";
 import { Payment } from "../types/payment";
-import { ref, get, remove, set } from "firebase/database";
+import { ref, get, remove } from "firebase/database";
 import { database } from "../firebaseConfig";
 import { updateCustomerBalanceInternal } from "./customer.controller";
 import { updateSupplierBalanceInternal } from "./suppliers.controller";

@@ -10,8 +10,10 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.updatePurchaseInternal = exports.updatePurchase = exports.getAllPurchasesInternal = exports.getPurchaseByIdInternal = exports.deletePurchaseInternal = exports.deletePurchase = exports.createPurchaseInternal = exports.createPurchase = exports.getAllPurchases = void 0;
+const numbers_1 = require("../utils/numbers");
+const database_1 = require("../utils/database");
 const uuid_1 = require("uuid");
-const database_1 = require("firebase/database");
+const database_2 = require("firebase/database");
 const products_controller_1 = require("./products.controller");
 const firebaseConfig_1 = require("../firebaseConfig");
 const operationDate_1 = require("../utils/operationDate");
@@ -19,8 +21,8 @@ const normalizeId = (value) => typeof value === "string" ? value : (value === nu
 const linkPurchaseToSupplier = (supplierId, purchaseId) => __awaiter(void 0, void 0, void 0, function* () {
     if (!supplierId || !purchaseId)
         return;
-    const supplierRef = (0, database_1.ref)(firebaseConfig_1.database, `supplier/${supplierId}`);
-    const supplierSnapshot = yield (0, database_1.get)(supplierRef);
+    const supplierRef = (0, database_2.ref)(firebaseConfig_1.database, `supplier/${supplierId}`);
+    const supplierSnapshot = yield (0, database_2.get)(supplierRef);
     if (!supplierSnapshot.exists())
         return;
     const supplier = supplierSnapshot.val();
@@ -33,8 +35,8 @@ const linkPurchaseToSupplier = (supplierId, purchaseId) => __awaiter(void 0, voi
 // ✅ الحصول على جميع عمليات الشراء
 const getAllPurchases = (_req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const dbRef = (0, database_1.ref)(firebaseConfig_1.database, "purchases");
-        const snapshot = yield (0, database_1.get)(dbRef);
+        const dbRef = (0, database_2.ref)(firebaseConfig_1.database, "purchases");
+        const snapshot = yield (0, database_2.get)(dbRef);
         const purchases = snapshot.exists() ? Object.values(snapshot.val()) : [];
         res.json(purchases);
     }
@@ -69,7 +71,8 @@ const createPurchase = (req, res) => __awaiter(void 0, void 0, void 0, function*
             transferCost: Number(transferCost || 0),
         };
         // ✅ حفظ عملية الشراء في قاعدة البيانات
-        yield (0, database_1.set)((0, database_1.ref)(firebaseConfig_1.database, `purchases/${id}`), purchaseData);
+        Object.assign(purchaseData, (0, numbers_1.normalizeInvoice)(purchaseData, (0, numbers_1.decimal)((0, numbers_1.roundNumber)(purchaseData.quantity)).times((0, numbers_1.roundNumber)(purchaseData.payPrice))));
+        yield (0, database_1.set)((0, database_2.ref)(firebaseConfig_1.database, `purchases/${id}`), purchaseData);
         yield linkPurchaseToSupplier(normalizedSupplierId, id);
         // ✅ تحديث المخزون لكل منتج تمت إضافته
         if (Array.isArray(products)) {
@@ -91,7 +94,8 @@ const createPurchaseInternal = (newPurchase) => __awaiter(void 0, void 0, void 0
     const id = (0, uuid_1.v4)();
     const operationDate = (0, operationDate_1.resolveOperationDate)(newPurchase.date);
     const purchaseData = Object.assign(Object.assign({}, newPurchase), { transferCost: Number(newPurchase.transferCost || 0), id, date: operationDate });
-    yield (0, database_1.set)((0, database_1.ref)(firebaseConfig_1.database, `purchases/${id}`), purchaseData);
+    Object.assign(purchaseData, (0, numbers_1.normalizeInvoice)(purchaseData, (0, numbers_1.decimal)((0, numbers_1.roundNumber)(purchaseData.quantity)).times((0, numbers_1.roundNumber)(purchaseData.payPrice))));
+    yield (0, database_1.set)((0, database_2.ref)(firebaseConfig_1.database, `purchases/${id}`), purchaseData);
     return purchaseData;
 });
 exports.createPurchaseInternal = createPurchaseInternal;
@@ -99,12 +103,12 @@ exports.createPurchaseInternal = createPurchaseInternal;
 const deletePurchase = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { id } = req.params;
-        const dbRef = (0, database_1.ref)(firebaseConfig_1.database, `purchases/${id}`);
-        const snapshot = yield (0, database_1.get)(dbRef);
+        const dbRef = (0, database_2.ref)(firebaseConfig_1.database, `purchases/${id}`);
+        const snapshot = yield (0, database_2.get)(dbRef);
         if (!snapshot.exists()) {
             return res.status(404).json({ message: "❌ عملية الشراء غير موجودة" });
         }
-        yield (0, database_1.remove)(dbRef);
+        yield (0, database_2.remove)(dbRef);
         res.json({ message: "✅ تم حذف عملية الشراء" });
     }
     catch (error) {
@@ -115,25 +119,25 @@ const deletePurchase = (req, res) => __awaiter(void 0, void 0, void 0, function*
 exports.deletePurchase = deletePurchase;
 // ✅ حذف عملية شراء داخليًا
 const deletePurchaseInternal = (id) => __awaiter(void 0, void 0, void 0, function* () {
-    const dbRef = (0, database_1.ref)(firebaseConfig_1.database, `purchases/${id}`);
-    const snapshot = yield (0, database_1.get)(dbRef);
+    const dbRef = (0, database_2.ref)(firebaseConfig_1.database, `purchases/${id}`);
+    const snapshot = yield (0, database_2.get)(dbRef);
     if (!snapshot.exists())
         return false;
-    yield (0, database_1.remove)(dbRef);
+    yield (0, database_2.remove)(dbRef);
     return true;
 });
 exports.deletePurchaseInternal = deletePurchaseInternal;
 // ✅ جلب عملية شراء واحدة داخليًا
 const getPurchaseByIdInternal = (id) => __awaiter(void 0, void 0, void 0, function* () {
-    const dbRef = (0, database_1.ref)(firebaseConfig_1.database, `purchases/${id}`);
-    const snapshot = yield (0, database_1.get)(dbRef);
+    const dbRef = (0, database_2.ref)(firebaseConfig_1.database, `purchases/${id}`);
+    const snapshot = yield (0, database_2.get)(dbRef);
     return snapshot.exists() ? snapshot.val() : null;
 });
 exports.getPurchaseByIdInternal = getPurchaseByIdInternal;
 // ✅ جلب جميع عمليات الشراء داخليًا
 const getAllPurchasesInternal = () => __awaiter(void 0, void 0, void 0, function* () {
-    const dbRef = (0, database_1.ref)(firebaseConfig_1.database, "purchases");
-    const snapshot = yield (0, database_1.get)(dbRef);
+    const dbRef = (0, database_2.ref)(firebaseConfig_1.database, "purchases");
+    const snapshot = yield (0, database_2.get)(dbRef);
     return snapshot.exists() ? Object.values(snapshot.val()) : [];
 });
 exports.getAllPurchasesInternal = getAllPurchasesInternal;
@@ -142,8 +146,8 @@ const updatePurchase = (req, res) => __awaiter(void 0, void 0, void 0, function*
     try {
         const { id } = req.params;
         const updatedData = req.body;
-        const dbRef = (0, database_1.ref)(firebaseConfig_1.database, `purchases/${id}`);
-        const snapshot = yield (0, database_1.get)(dbRef);
+        const dbRef = (0, database_2.ref)(firebaseConfig_1.database, `purchases/${id}`);
+        const snapshot = yield (0, database_2.get)(dbRef);
         if (!snapshot.exists()) {
             return res.status(404).json({ message: "❌ عملية الشراء غير موجودة" });
         }
@@ -167,8 +171,8 @@ const updatePurchase = (req, res) => __awaiter(void 0, void 0, void 0, function*
 exports.updatePurchase = updatePurchase;
 // ✅ تعديل عملية شراء داخليًا (Internal)
 const updatePurchaseInternal = (id, updatedData) => __awaiter(void 0, void 0, void 0, function* () {
-    const dbRef = (0, database_1.ref)(firebaseConfig_1.database, `purchases/${id}`);
-    const snapshot = yield (0, database_1.get)(dbRef);
+    const dbRef = (0, database_2.ref)(firebaseConfig_1.database, `purchases/${id}`);
+    const snapshot = yield (0, database_2.get)(dbRef);
     if (!snapshot.exists())
         return null;
     const existingPurchase = snapshot.val();

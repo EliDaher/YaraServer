@@ -10,14 +10,16 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.addAfterSellDiscountInternal = exports.getSalesByWarehouseAndDate = exports.returnProductsFromSellInternal = exports.deleteSellById = exports.updateSellById = exports.getSellById = exports.createSellInternal = exports.deleteSell = exports.createSell = exports.getAllSells = void 0;
-const database_1 = require("firebase/database");
+const numbers_1 = require("../utils/numbers");
+const database_1 = require("../utils/database");
+const database_2 = require("firebase/database");
 const uuid_1 = require("uuid");
 const firebaseConfig_1 = require("../firebaseConfig");
 const operationDate_1 = require("../utils/operationDate");
 // 🧩 جلب جميع فواتير البيع
 const getAllSells = (_req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const snapshot = yield (0, database_1.get)((0, database_1.ref)(firebaseConfig_1.database, "sells"));
+        const snapshot = yield (0, database_2.get)((0, database_2.ref)(firebaseConfig_1.database, "sells"));
         const data = snapshot.exists() ? snapshot.val() : {};
         const sells = Object.values(data);
         res.json(sells);
@@ -35,7 +37,8 @@ const createSell = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         const id = (0, uuid_1.v4)();
         const operationDate = (0, operationDate_1.resolveOperationDate)((_a = req.body) === null || _a === void 0 ? void 0 : _a.date);
         const newSell = Object.assign(Object.assign({}, req.body), { id, date: operationDate });
-        yield (0, database_1.set)((0, database_1.ref)(firebaseConfig_1.database, `sells/${id}`), newSell);
+        Object.assign(newSell, (0, numbers_1.normalizeInvoice)(newSell, newSell.products.reduce((sum, p) => sum.plus((0, numbers_1.decimal)((0, numbers_1.roundNumber)(p.sellPrice)).times((0, numbers_1.roundNumber)(p.qty))), (0, numbers_1.decimal)(0)).minus((0, numbers_1.roundNumber)(newSell.discount || 0))));
+        yield (0, database_1.set)((0, database_2.ref)(firebaseConfig_1.database, `sells/${id}`), newSell);
         res.json({ message: "✅ تم تسجيل فاتورة البيع", data: newSell });
     }
     catch (error) {
@@ -52,12 +55,12 @@ exports.createSell = createSell;
 const deleteSell = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { id } = req.params;
-        const sellRef = (0, database_1.ref)(firebaseConfig_1.database, `sells/${id}`);
-        const snapshot = yield (0, database_1.get)(sellRef);
+        const sellRef = (0, database_2.ref)(firebaseConfig_1.database, `sells/${id}`);
+        const snapshot = yield (0, database_2.get)(sellRef);
         if (!snapshot.exists()) {
             return res.status(404).json({ message: "❌ فاتورة البيع غير موجودة" });
         }
-        yield (0, database_1.remove)(sellRef);
+        yield (0, database_2.remove)(sellRef);
         res.json({ message: "✅ تم حذف فاتورة البيع" });
     }
     catch (error) {
@@ -72,7 +75,8 @@ const createSellInternal = (newSell) => __awaiter(void 0, void 0, void 0, functi
         const id = (0, uuid_1.v4)();
         const operationDate = (0, operationDate_1.resolveOperationDate)(newSell.date);
         const sellData = Object.assign(Object.assign({}, newSell), { id, date: operationDate });
-        yield (0, database_1.set)((0, database_1.ref)(firebaseConfig_1.database, `sells/${id}`), sellData);
+        Object.assign(sellData, (0, numbers_1.normalizeInvoice)(sellData, sellData.products.reduce((sum, p) => sum.plus((0, numbers_1.decimal)((0, numbers_1.roundNumber)(p.sellPrice)).times((0, numbers_1.roundNumber)(p.qty))), (0, numbers_1.decimal)(0)).minus((0, numbers_1.roundNumber)(sellData.discount || 0))));
+        yield (0, database_1.set)((0, database_2.ref)(firebaseConfig_1.database, `sells/${id}`), sellData);
         return sellData;
     }
     catch (error) {
@@ -85,13 +89,13 @@ exports.createSellInternal = createSellInternal;
 const getSellById = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { id } = req.params;
-        const snapshot = yield (0, database_1.get)((0, database_1.ref)(firebaseConfig_1.database, `sells/${id}`));
+        const snapshot = yield (0, database_2.get)((0, database_2.ref)(firebaseConfig_1.database, `sells/${id}`));
         if (!snapshot.exists()) {
             return res.status(404).json({ message: "❌ فاتورة البيع غير موجودة" });
         }
         const sellData = snapshot.val();
         // جلب بيانات الزبون
-        const customerSnap = yield (0, database_1.get)((0, database_1.ref)(firebaseConfig_1.database, `customer/${sellData.customerId}`));
+        const customerSnap = yield (0, database_2.get)((0, database_2.ref)(firebaseConfig_1.database, `customer/${sellData.customerId}`));
         const customerData = customerSnap.exists() ? customerSnap.val() : {};
         res.json(Object.assign(Object.assign({}, sellData), { customerName: customerData.name || "" }));
     }
@@ -114,8 +118,8 @@ const updateSellById = (req, res) => __awaiter(void 0, void 0, void 0, function*
         if (!updateData || !Array.isArray(updateData.products)) {
             return res.status(400).json({ message: "بيانات التحديث غير صالحة" });
         }
-        const sellRef = (0, database_1.ref)(firebaseConfig_1.database, `sells/${id}`);
-        const snapshot = yield (0, database_1.get)(sellRef);
+        const sellRef = (0, database_2.ref)(firebaseConfig_1.database, `sells/${id}`);
+        const snapshot = yield (0, database_2.get)(sellRef);
         if (!snapshot.exists()) {
             return res.status(404).json({ message: "❌ فاتورة البيع غير موجودة" });
         }
@@ -129,15 +133,15 @@ const updateSellById = (req, res) => __awaiter(void 0, void 0, void 0, function*
             if (!(oldP === null || oldP === void 0 ? void 0 : oldP.warehouse) || !(oldP === null || oldP === void 0 ? void 0 : oldP.code) || !(oldP === null || oldP === void 0 ? void 0 : oldP.qty))
                 continue;
             const qtyPath = `products/${oldP.warehouse}/${oldP.id}/quantity`;
-            const qtyRef = (0, database_1.ref)(firebaseConfig_1.database, qtyPath);
-            const qtySnap = yield (0, database_1.get)(qtyRef);
+            const qtyRef = (0, database_2.ref)(firebaseConfig_1.database, qtyPath);
+            const qtySnap = yield (0, database_2.get)(qtyRef);
             if (!qtySnap.exists()) {
                 return res.status(400).json({
                     message: `المنتج غير موجود في المخزون: ${oldP.code}`,
                 });
             }
             const currentQty = Number(qtySnap.val());
-            const restoredQty = currentQty + Number(oldP.qty);
+            const restoredQty = (0, numbers_1.roundNumber)((0, numbers_1.decimal)(currentQty).plus(oldP.qty));
             yield (0, database_1.set)(qtyRef, restoredQty);
         }
         // 2️⃣ خصم الكميات الجديدة
@@ -148,15 +152,15 @@ const updateSellById = (req, res) => __awaiter(void 0, void 0, void 0, function*
                 });
             }
             const qtyPath = `products/${newP.warehouse}/${newP.id}/quantity`;
-            const qtyRef = (0, database_1.ref)(firebaseConfig_1.database, qtyPath);
-            const qtySnap = yield (0, database_1.get)(qtyRef);
+            const qtyRef = (0, database_2.ref)(firebaseConfig_1.database, qtyPath);
+            const qtySnap = yield (0, database_2.get)(qtyRef);
             if (!qtySnap.exists()) {
                 return res.status(400).json({
                     message: `المنتج غير موجود في المخزون: ${newP.code}`,
                 });
             }
             const currentQty = Number(qtySnap.val());
-            const newQty = currentQty - Number(newP.qty);
+            const newQty = (0, numbers_1.roundNumber)((0, numbers_1.decimal)(currentQty).minus(newP.qty));
             if (newQty < 0) {
                 return res.status(400).json({
                     message: `❌ الكمية غير كافية للمنتج ${newP.code}`,
@@ -168,14 +172,16 @@ const updateSellById = (req, res) => __awaiter(void 0, void 0, void 0, function*
         // 🔢 تحديث الفاتورة
         // =========================
         sellData.products = updateData.products;
-        const newTotalPrice = sellData.products.reduce((sum, p) => sum + Number(p.sellPrice || 0) * Number(p.qty || 0), 0);
+        const newTotalPrice = (0, numbers_1.roundNumber)(sellData.products.reduce((sum, p) => sum.plus((0, numbers_1.decimal)(p.sellPrice || 0).times(p.qty || 0)), (0, numbers_1.decimal)(0)).minus(sellData.discount || 0));
+        const paidAmount = (0, numbers_1.decimal)(oldTotalPrice).minus(sellData.remainingDebt || 0);
+        sellData.remainingDebt = (0, numbers_1.roundNumber)((0, numbers_1.decimal)(newTotalPrice).minus(paidAmount));
         sellData.totalPrice = newTotalPrice;
         sellData.updatedAt = new Date().toISOString();
         // =========================
         // 💰 تحديث رصيد العميل
         // =========================
-        const customerRef = (0, database_1.ref)(firebaseConfig_1.database, `customer/${sellData.customerId}`);
-        const customerSnap = yield (0, database_1.get)(customerRef);
+        const customerRef = (0, database_2.ref)(firebaseConfig_1.database, `customer/${sellData.customerId}`);
+        const customerSnap = yield (0, database_2.get)(customerRef);
         if (!customerSnap.exists()) {
             return res.status(400).json({
                 message: "العميل غير موجود",
@@ -184,7 +190,7 @@ const updateSellById = (req, res) => __awaiter(void 0, void 0, void 0, function*
         const customer = customerSnap.val();
         const currentBalance = Number(customer.balance || 0);
         console.log(currentBalance, oldTotalPrice, newTotalPrice);
-        const newBalance = currentBalance + (oldTotalPrice - newTotalPrice);
+        const newBalance = (0, numbers_1.roundNumber)((0, numbers_1.decimal)(currentBalance).plus(oldTotalPrice).minus(newTotalPrice));
         yield (0, database_1.update)(customerRef, {
             balance: newBalance,
         });
@@ -205,7 +211,7 @@ const updateSellById = (req, res) => __awaiter(void 0, void 0, void 0, function*
             note: `تعديل على فاتورة بيع - ${id}`,
             date: new Date().toISOString(),
         };
-        yield (0, database_1.set)((0, database_1.ref)(firebaseConfig_1.database, `payment/${paymentId}`), payment);
+        yield (0, database_1.set)((0, database_2.ref)(firebaseConfig_1.database, `payment/${paymentId}`), payment);
         // =========================
         // 💾 حفظ الفاتورة
         // =========================
@@ -228,29 +234,29 @@ exports.updateSellById = updateSellById;
 const deleteSellById = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { id } = req.params;
-        const sellRef = (0, database_1.ref)(firebaseConfig_1.database, `sells/${id}`);
-        const snapshot = yield (0, database_1.get)(sellRef);
+        const sellRef = (0, database_2.ref)(firebaseConfig_1.database, `sells/${id}`);
+        const snapshot = yield (0, database_2.get)(sellRef);
         if (!snapshot.exists()) {
             return res.status(404).json({ message: "❌ فاتورة البيع غير موجودة" });
         }
         const sellData = snapshot.val();
         // 🧩 استرجاع الكميات في المخزون
-        const productsSnap = yield (0, database_1.get)((0, database_1.ref)(firebaseConfig_1.database, "products"));
+        const productsSnap = yield (0, database_2.get)((0, database_2.ref)(firebaseConfig_1.database, "products"));
         const products = productsSnap.exists() ? productsSnap.val() : {};
         for (const p of sellData.products) {
             const warehouse = p.warehouse;
-            const code = p.code;
+            const code = p.id || p.code;
             if (products[warehouse] && products[warehouse][code]) {
-                products[warehouse][code].quantity += parseFloat(p.qty);
+                products[warehouse][code].quantity = (0, numbers_1.roundNumber)((0, numbers_1.decimal)(products[warehouse][code].quantity).plus(p.qty));
             }
         }
-        yield (0, database_1.update)((0, database_1.ref)(firebaseConfig_1.database, "products"), products);
+        yield (0, database_1.update)((0, database_2.ref)(firebaseConfig_1.database, "products"), products);
         // 💰 تعديل رصيد الزبون
-        const customerRef = (0, database_1.ref)(firebaseConfig_1.database, `customer/${sellData.customerId}`);
-        const customerSnap = yield (0, database_1.get)(customerRef);
+        const customerRef = (0, database_2.ref)(firebaseConfig_1.database, `customer/${sellData.customerId}`);
+        const customerSnap = yield (0, database_2.get)(customerRef);
         if (customerSnap.exists()) {
             const customer = customerSnap.val();
-            customer.balance = (customer.balance || 0) + sellData.totalPrice;
+            customer.balance = (0, numbers_1.roundNumber)((0, numbers_1.decimal)(customer.balance || 0).plus(sellData.remainingDebt || 0));
             yield (0, database_1.update)(customerRef, customer);
         }
         // 🧾 تسجيل العملية كدفعة حذف
@@ -268,9 +274,9 @@ const deleteSellById = (req, res) => __awaiter(void 0, void 0, void 0, function*
             id: paymentId,
             date: new Date().toLocaleString(),
         };
-        yield (0, database_1.set)((0, database_1.ref)(firebaseConfig_1.database, `payment/${paymentId}`), payment);
+        yield (0, database_1.set)((0, database_2.ref)(firebaseConfig_1.database, `payment/${paymentId}`), payment);
         // حذف الفاتورة
-        yield (0, database_1.remove)(sellRef);
+        yield (0, database_2.remove)(sellRef);
         res.json({
             message: `✅ تم حذف الفاتورة ${id} وإرجاع المخزون وتحديث رصيد الزبون.`,
         });
@@ -282,24 +288,26 @@ const deleteSellById = (req, res) => __awaiter(void 0, void 0, void 0, function*
 });
 exports.deleteSellById = deleteSellById;
 const returnProductsFromSellInternal = (sellId, returnedProducts) => __awaiter(void 0, void 0, void 0, function* () {
-    const sellRef = (0, database_1.ref)(firebaseConfig_1.database, `sells/${sellId}`);
-    const sellSnap = yield (0, database_1.get)(sellRef);
+    returnedProducts = (0, numbers_1.normalizeNumbers)(returnedProducts);
+    const sellRef = (0, database_2.ref)(firebaseConfig_1.database, `sells/${sellId}`);
+    const sellSnap = yield (0, database_2.get)(sellRef);
     if (!sellSnap.exists())
         return null;
     const sellData = sellSnap.val();
-    let totalRefund = 0;
+    const originalTotal = sellData.totalPrice;
+    let totalRefund = (0, numbers_1.decimal)(0);
     for (const { code, warehouse, qty } of returnedProducts) {
         const product = sellData.products.find((p) => p.code === code && p.warehouse === warehouse);
         if (!product)
             continue;
         const returnedQty = Math.min(product.qty, qty);
-        product.qty -= returnedQty;
-        totalRefund += returnedQty * Number(product.sellPrice);
+        product.qty = (0, numbers_1.roundNumber)((0, numbers_1.decimal)(product.qty).minus(returnedQty));
+        totalRefund = totalRefund.plus((0, numbers_1.decimal)(returnedQty).times(product.sellPrice));
     }
     sellData.products = sellData.products.filter((p) => p.qty > 0);
-    sellData.totalPrice = sellData.products.reduce((sum, p) => sum + Number(p.sellPrice) * Number(p.qty), 0);
+    sellData.totalPrice = (0, numbers_1.roundNumber)((0, numbers_1.decimal)(originalTotal).minus(totalRefund));
     yield (0, database_1.update)(sellRef, sellData);
-    return { updatedSell: sellData, totalRefund };
+    return { updatedSell: sellData, totalRefund: (0, numbers_1.roundNumber)(totalRefund) };
 });
 exports.returnProductsFromSellInternal = returnProductsFromSellInternal;
 // جلب المبيعات حسب المستودع والتاريخ
@@ -314,7 +322,7 @@ const getSalesByWarehouseAndDate = (req, res) => __awaiter(void 0, void 0, void 
                 timeZone: "Asia/Damascus",
             });
         }
-        const snapshot = yield (0, database_1.get)((0, database_1.ref)(firebaseConfig_1.database, "sells"));
+        const snapshot = yield (0, database_2.get)((0, database_2.ref)(firebaseConfig_1.database, "sells"));
         if (!snapshot.exists()) {
             return res.json({ sales: [] });
         }
@@ -342,14 +350,16 @@ const addAfterSellDiscountInternal = (_a) => __awaiter(void 0, [_a], void 0, fun
         if (!sellId || discount == null) {
             return { message: "sellId و discount مطلوبان" };
         }
-        const sellRef = (0, database_1.ref)(firebaseConfig_1.database, `sells/${sellId}`);
-        const sellSnap = yield (0, database_1.get)(sellRef);
+        const sellRef = (0, database_2.ref)(firebaseConfig_1.database, `sells/${sellId}`);
+        const sellSnap = yield (0, database_2.get)(sellRef);
         if (!sellSnap.exists()) {
             return { message: "فاتورة البيع غير موجودة" };
         }
         const sellData = sellSnap.val();
+        discount = (0, numbers_1.roundNumber)(discount);
         sellData.discount = discount;
-        sellData.totalPrice = (sellData.totalPrice || 0) - discount;
+        sellData.totalPrice = (0, numbers_1.roundNumber)((0, numbers_1.decimal)(sellData.totalPrice || 0).minus(discount));
+        sellData.remainingDebt = (0, numbers_1.roundNumber)((0, numbers_1.decimal)(sellData.remainingDebt || 0).minus(discount));
         yield (0, database_1.update)(sellRef, sellData);
         return { message: "✅ تم إضافة الخصم بعد البيع", data: sellData };
     }

@@ -1,3 +1,5 @@
+import { decimal, roundNumber, normalizeNumbers } from "../utils/numbers";
+import { update } from "../utils/database";
 import { get, ref } from "firebase/database";
 import {
   updateCustomerBalanceInternal,
@@ -43,6 +45,8 @@ export const handlePurchase = async ({
   newProduct: Product;
   executer?: string;
 }) => {
+  newPurchase = normalizeNumbers(newPurchase);
+  newProduct = normalizeNumbers(newProduct);
   // 1- تسجيل عملية الشراء
   const normalizedExecuter = executer || "Unknown";
   const purchaseWithExecuter: purchase = {
@@ -68,13 +72,12 @@ export const handlePurchase = async ({
       source: "generated",
       balanceApplied: false,
       supplierId: purchaseData.supplierId,
-      amount: -(purchaseData.totalPrice - purchaseData.remainingDebt),
+      amount: -(roundNumber(decimal(purchaseData.totalPrice).minus(purchaseData.remainingDebt))),
       note: `${newProduct.name} دفعة من ثمن شراء`,
       currency: newPurchase.currency,
       exchangeRate: newPurchase.exchangeRate,
       amount_base: -(
-        newPurchase.exchangeRate *
-        (purchaseData.totalPrice - purchaseData.remainingDebt)
+        decimal(newPurchase.exchangeRate).times(roundNumber(decimal(purchaseData.totalPrice).minus(purchaseData.remainingDebt))).toNumber()
       ),
       date: purchaseData.date,
       executer: normalizedExecuter,
@@ -90,7 +93,7 @@ export const handlePurchase = async ({
       note: `${newProduct.name} دفع كامل ثمن شراء`,
       currency: newPurchase.currency,
       exchangeRate: newPurchase.exchangeRate,
-      amount_base: -(newPurchase.exchangeRate * purchaseData.totalPrice),
+      amount_base: -(decimal(newPurchase.exchangeRate).times(purchaseData.totalPrice).toNumber()),
       date: purchaseData.date,
       executer: normalizedExecuter,
     });
@@ -107,7 +110,7 @@ export const handlePurchase = async ({
       note: `${newProduct.name} transfer/shipping cost`,
       currency: newPurchase.currency,
       exchangeRate: newPurchase.exchangeRate,
-      amount_base: -(newPurchase.exchangeRate * transferCost),
+      amount_base: -(decimal(newPurchase.exchangeRate).times(transferCost).toNumber()),
       date: purchaseData.date,
       executer: normalizedExecuter,
     });
@@ -125,6 +128,7 @@ export const handleSell = async ({
   executer?: string;
 }) => {
   try {
+    newSell = normalizeNumbers(newSell);
     // 1- تسجيل عملية البيع
     const normalizedExecuter = executer || "Unknown";
     const sellWithExecuter: sell = {
@@ -135,9 +139,9 @@ export const handleSell = async ({
 
     // 2- تحديث مخزون المنتجات
     console.log(newSell)
-    newSell.products.forEach(async (p) => {
+    for (const p of sellData.products) {
       await updateQuantityOnSell(p.id, p.warehouse, p.qty);
-    });
+    }
 
     // 3- تعديل رصيد المورد (إضافة دين جديد)
     await updateCustomerInternal(sellData.customerId, sellData);
@@ -152,7 +156,7 @@ export const handleSell = async ({
         note: `دفع كامل ثمن بيع`,
         currency: sellData.currency,
         exchangeRate: sellData.exchangeRate,
-        amount_base: sellData.exchangeRate * sellData.totalPrice,
+        amount_base: decimal(sellData.exchangeRate).times(sellData.totalPrice).toNumber(),
         date: sellData.date,
         executer: normalizedExecuter,
       });
@@ -163,14 +167,13 @@ export const handleSell = async ({
         source: "generated",
         balanceApplied: false,
         customerId: sellData.customerId,
-        amount: sellData.totalPrice - sellData.remainingDebt,
+        amount: roundNumber(decimal(sellData.totalPrice).minus(sellData.remainingDebt)),
         note: `دفعه من ثمن بيع`,
         currency: sellData.currency,
         exchangeRate: sellData.exchangeRate,
         amount_base:
           sellData.partValue ||
-          sellData.exchangeRate *
-            (sellData.totalPrice - sellData.remainingDebt),
+          decimal(sellData.exchangeRate).times(roundNumber(decimal(sellData.totalPrice).minus(sellData.remainingDebt))).toNumber(),
         date: sellData.date,
         executer: normalizedExecuter,
       });
@@ -197,7 +200,7 @@ export const customerPayment = async (
 
   // 2- تحديث رصيد العميل
   if (data.customerId) {
-    await updateCustomerInternal(data.customerId, undefined, paymentData);
+    await updateCustomerInternal(data.customerId, undefined, data);
   }
 
   return data;
@@ -217,7 +220,7 @@ export const supplierPayment = async (
 
   // 2- تحديث رصيد المورد
   if (data.supplierId) {
-    await updateSupplierInternal(data.supplierId, undefined, paymentData);
+    await updateSupplierInternal(data.supplierId, undefined, data);
   }
 
   return data;
@@ -237,6 +240,7 @@ export const handleSupplierReturn = async (newReturn: {
   executer?: string;
 }) => {
   try {
+    newReturn = normalizeNumbers(newReturn);
     const returnQty = Math.abs(Number(newReturn.qty || 0));
     if (!returnQty) {
       throw new Error("Invalid return quantity");
@@ -247,7 +251,7 @@ export const handleSupplierReturn = async (newReturn: {
       throw new Error("Purchase not found");
     }
 
-    const updatedQuantity = Number(purchase.quantity || 0) - returnQty;
+    const updatedQuantity = roundNumber(decimal(purchase.quantity || 0).minus(returnQty));
     if (updatedQuantity < 0) {
       throw new Error("Return quantity exceeds purchase quantity");
     }
@@ -286,7 +290,7 @@ export const handleSupplierReturn = async (newReturn: {
     if (newReturn.returnType === "debt") {
       balanceChange = -newReturn.returnValue;
     } else if (newReturn.returnType === "part") {
-      balanceChange = -(newReturn.returnValue - newReturn.partValue);
+      balanceChange = -(roundNumber(decimal(newReturn.returnValue).minus(newReturn.partValue)));
     }
     await updateSupplierBalanceInternal(newReturn.supplierId, balanceChange);
 
@@ -384,15 +388,15 @@ const normalizeCustomerReturnItems = (
 };
 
 export const handleCustomerReturn = async (newReturn: CustomerReturnPayload) => {
+  newReturn = normalizeNumbers(newReturn);
   if (!newReturn.customerId || !newReturn.referenceId || !newReturn.returnType) {
     throw new Error("customerId, referenceId, and returnType are required");
   }
 
   const items = normalizeCustomerReturnItems(newReturn);
-  const totalReturnValue = items.reduce(
-    (sum, item) => sum + Number(item.returnValue || 0),
-    0
-  );
+  const totalReturnValue = roundNumber(items.reduce(
+    (sum, item) => sum.plus(item.returnValue || 0), decimal(0)
+  ));
   const partValue = Number(newReturn.partValue || 0);
 
   if (newReturn.returnType === "part") {
@@ -426,7 +430,7 @@ export const handleCustomerReturn = async (newReturn: CustomerReturnPayload) => 
     const key = `${item.productCode}::${item.warehouse}`;
     const current = requestedBySellLine.get(key);
     if (current) {
-      current.qty += item.qty;
+      current.qty = roundNumber(decimal(current.qty).plus(item.qty));
     } else {
       requestedBySellLine.set(key, {
         code: item.productCode,
@@ -535,9 +539,12 @@ export const handleCustomerReturn = async (newReturn: CustomerReturnPayload) => 
   if (newReturn.returnType === "debt") {
     balanceChange = totalReturnValue;
   } else if (newReturn.returnType === "part") {
-    balanceChange = totalReturnValue - partValue;
+    balanceChange = roundNumber(decimal(totalReturnValue).minus(partValue));
   }
 
+  await update(sellRef, {
+    remainingDebt: roundNumber(decimal(sellData.remainingDebt || 0).minus(balanceChange)),
+  });
   if (balanceChange !== 0) {
     await updateCustomerBalanceInternal(newReturn.customerId, balanceChange);
   }
@@ -576,8 +583,9 @@ export const warehouseTransfer = async (transferData: {
       return product?.message;
     }
 
+    transferData = normalizeNumbers(transferData);
     const currentStock = Number(product.product.quantity || 0);
-    const stockAfter = currentStock - transferData.quantity;
+    const stockAfter = roundNumber(decimal(currentStock).minus(transferData.quantity));
 
     if (stockAfter < 0) {
       throw new Error("❌ الكمية غير كافية في المستودع");

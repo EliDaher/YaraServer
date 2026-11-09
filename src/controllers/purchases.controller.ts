@@ -1,7 +1,9 @@
+import { decimal, roundNumber, normalizeInvoice } from "../utils/numbers";
+import { set, update } from "../utils/database";
 import { Request, Response } from "express";
 import { v4 as uuidv4 } from "uuid";
 import { purchase } from "../types/purchase";
-import { ref, get, set, update, remove } from "firebase/database";
+import { ref, get, remove } from "firebase/database";
 import { createOrUpdateProductInternal } from "./products.controller";
 import { database } from "../firebaseConfig";
 import { resolveOperationDate } from "../utils/operationDate";
@@ -84,7 +86,8 @@ export const createPurchase = async (req: Request, res: Response) => {
     };
 
     // ✅ حفظ عملية الشراء في قاعدة البيانات
-    await set(ref(database, `purchases/${id}`), purchaseData);
+    Object.assign(purchaseData, normalizeInvoice(purchaseData, decimal(roundNumber(purchaseData.quantity)).times(roundNumber(purchaseData.payPrice))));
+  await set(ref(database, `purchases/${id}`), purchaseData);
     await linkPurchaseToSupplier(normalizedSupplierId, id);
 
     // ✅ تحديث المخزون لكل منتج تمت إضافته
@@ -116,6 +119,7 @@ export const createPurchaseInternal = async (
     date: operationDate,
   };
 
+  Object.assign(purchaseData, normalizeInvoice(purchaseData, decimal(roundNumber(purchaseData.quantity)).times(roundNumber(purchaseData.payPrice))));
   await set(ref(database, `purchases/${id}`), purchaseData);
   return purchaseData;
 };

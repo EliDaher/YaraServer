@@ -1,5 +1,7 @@
+import { decimal, roundNumber, normalizeNumbers } from "../utils/numbers";
+import { set, update } from "../utils/database";
 import { Request, Response } from "express";
-import { getDatabase, ref, get, set, update } from "firebase/database";
+import { getDatabase, ref, get } from "firebase/database";
 import { v4 as uuidv4 } from "uuid";
 
 export interface ReturnData {
@@ -27,12 +29,12 @@ function applyReturnToProduct(
   qty: number
 ) {
   if (type === "sale-return") {
-    product.quantity += qty;
+    product.quantity = roundNumber(decimal(product.quantity).plus(qty));
   } else if (type === "purchase-return") {
     if (product.quantity < qty) {
       throw new Error("❌ الكمية غير كافية في المخزون للإرجاع");
     }
-    product.quantity -= qty;
+    product.quantity = roundNumber(decimal(product.quantity).minus(qty));
   } else {
     throw new Error("❌ نوع الإرجاع غير صحيح (sale-return | purchase-return)");
   }
@@ -139,6 +141,7 @@ export const createReturn = async (req: Request, res: Response) => {
 // ✅ create return internal (للاستخدام داخل النظام)
 export const createReturnInternal = async (newReturn: ReturnData) => {
   try {
+    newReturn = normalizeNumbers(newReturn);
     const db = getDatabase();
     const { applyStock = true, ...returnData } = newReturn;
     const productRef = ref(

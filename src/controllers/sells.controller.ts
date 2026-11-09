@@ -1,5 +1,7 @@
+import { decimal, roundNumber, normalizeNumbers, normalizeInvoice } from "../utils/numbers";
+import { set, update } from "../utils/database";
 import { Request, Response } from "express";
-import { ref, get, set, update, remove, push } from "firebase/database";
+import { ref, get, remove } from "firebase/database";
 import { v4 as uuidv4 } from "uuid";
 import { sell } from "../types/sell";
 import { Payment } from "../types/payment";
@@ -31,6 +33,16 @@ export const createSell = async (req: Request, res: Response) => {
       date: operationDate,
     };
 
+    Object.assign(
+      newSell,
+      normalizeInvoice(
+        newSell,
+        newSell.products.reduce(
+          (sum, p) => sum.plus(decimal(roundNumber(p.sellPrice)).times(roundNumber(p.qty))),
+          decimal(0)
+        ).minus(roundNumber(newSell.discount || 0))
+      )
+    );
     await set(ref(database, `sells/${id}`), newSell);
 
     res.json({ message: "✅ تم تسجيل فاتورة البيع", data: newSell });
@@ -75,6 +87,16 @@ export const createSellInternal = async (newSell: sell): Promise<sell> => {
       date: operationDate,
     };
 
+    Object.assign(
+      sellData,
+      normalizeInvoice(
+        sellData,
+        sellData.products.reduce(
+          (sum, p) => sum.plus(decimal(roundNumber(p.sellPrice)).times(roundNumber(p.qty))),
+          decimal(0)
+        ).minus(roundNumber(sellData.discount || 0))
+      )
+    );
     await set(ref(database, `sells/${id}`), sellData);
     return sellData;
   } catch (error) {
@@ -152,7 +174,7 @@ export const updateSellById = async (req: Request, res: Response) => {
       }
 
       const currentQty = Number(qtySnap.val());
-      const restoredQty = currentQty + Number(oldP.qty);
+      const restoredQty = roundNumber(decimal(currentQty).plus(oldP.qty));
 
       await set(qtyRef, restoredQty);
     }
@@ -176,7 +198,7 @@ export const updateSellById = async (req: Request, res: Response) => {
       }
 
       const currentQty = Number(qtySnap.val());
-      const newQty = currentQty - Number(newP.qty);
+      const newQty = roundNumber(decimal(currentQty).minus(newP.qty));
 
       if (newQty < 0) {
         return res.status(400).json({
@@ -193,12 +215,14 @@ export const updateSellById = async (req: Request, res: Response) => {
 
     sellData.products = updateData.products;
 
-    const newTotalPrice = sellData.products.reduce(
-      (sum: number, p: any) =>
-        sum + Number(p.sellPrice || 0) * Number(p.qty || 0),
-      0
-    );
+    const newTotalPrice = roundNumber(sellData.products.reduce(
+      (sum: ReturnType<typeof decimal>, p: any) =>
+        sum.plus(decimal(p.sellPrice || 0).times(p.qty || 0)),
+      decimal(0)
+    ).minus(sellData.discount || 0));
 
+    const paidAmount = decimal(oldTotalPrice).minus(sellData.remainingDebt || 0);
+    sellData.remainingDebt = roundNumber(decimal(newTotalPrice).minus(paidAmount));
     sellData.totalPrice = newTotalPrice;
     sellData.updatedAt = new Date().toISOString();
 
@@ -218,7 +242,7 @@ export const updateSellById = async (req: Request, res: Response) => {
     const customer = customerSnap.val();
     const currentBalance = Number(customer.balance || 0);
     console.log(currentBalance, oldTotalPrice, newTotalPrice);
-    const newBalance = currentBalance + (oldTotalPrice - newTotalPrice);
+    const newBalance = roundNumber(decimal(currentBalance).plus(oldTotalPrice).minus(newTotalPrice));
 
     await update(customerRef, {
       balance: newBalance,
@@ -285,9 +309,9 @@ export const deleteSellById = async (req: Request, res: Response) => {
 
     for (const p of sellData.products) {
       const warehouse = p.warehouse;
-      const code = p.code;
+      const code = p.id || p.code;
       if (products[warehouse] && products[warehouse][code]) {
-        products[warehouse][code].quantity += parseFloat(p.qty);
+        products[warehouse][code].quantity = roundNumber(decimal(products[warehouse][code].quantity).plus(p.qty));
       }
     }
 
@@ -298,7 +322,7 @@ export const deleteSellById = async (req: Request, res: Response) => {
     const customerSnap = await get(customerRef);
     if (customerSnap.exists()) {
       const customer = customerSnap.val();
-      customer.balance = (customer.balance || 0) + sellData.totalPrice;
+      customer.balance = roundNumber(decimal(customer.balance || 0).plus(sellData.remainingDebt || 0));
       await update(customerRef, customer);
     }
 
@@ -335,12 +359,14 @@ export const returnProductsFromSellInternal = async (
   sellId: string,
   returnedProducts: { code: string; warehouse: string; qty: number }[]
 ): Promise<{ updatedSell: sell; totalRefund: number } | null> => {
+  returnedProducts = normalizeNumbers(returnedProducts);
   const sellRef = ref(database, `sells/${sellId}`);
   const sellSnap = await get(sellRef);
   if (!sellSnap.exists()) return null;
 
   const sellData: sell = sellSnap.val();
-  let totalRefund = 0;
+  const originalTotal = sellData.totalPrice;
+  let totalRefund = decimal(0);
 
   for (const { code, warehouse, qty } of returnedProducts) {
     const product = sellData.products.find(
@@ -349,19 +375,16 @@ export const returnProductsFromSellInternal = async (
     if (!product) continue;
 
     const returnedQty = Math.min(product.qty, qty);
-    product.qty -= returnedQty;
-    totalRefund += returnedQty * Number(product.sellPrice);
+    product.qty = roundNumber(decimal(product.qty).minus(returnedQty));
+    totalRefund = totalRefund.plus(decimal(returnedQty).times(product.sellPrice));
   }
 
   sellData.products = sellData.products.filter((p) => p.qty > 0);
-  sellData.totalPrice = sellData.products.reduce(
-    (sum, p) => sum + Number(p.sellPrice) * Number(p.qty),
-    0
-  );
+  sellData.totalPrice = roundNumber(decimal(originalTotal).minus(totalRefund));
 
   await update(sellRef, sellData);
 
-  return { updatedSell: sellData, totalRefund };
+  return { updatedSell: sellData, totalRefund: roundNumber(totalRefund) };
 };
 
 
@@ -425,8 +448,10 @@ export const addAfterSellDiscountInternal = async ({sellId, discount}: {sellId: 
     }
 
     const sellData: sell = sellSnap.val();
+    discount = roundNumber(discount);
     sellData.discount = discount;
-    sellData.totalPrice = (sellData.totalPrice || 0) - discount;
+    sellData.totalPrice = roundNumber(decimal(sellData.totalPrice || 0).minus(discount));
+    sellData.remainingDebt = roundNumber(decimal(sellData.remainingDebt || 0).minus(discount));
 
     await update(sellRef, sellData);
 

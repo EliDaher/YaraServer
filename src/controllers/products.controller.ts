@@ -1,6 +1,8 @@
+import { decimal, roundNumber, normalizeNumbers } from "../utils/numbers";
+import { set, push } from "../utils/database";
 import { Request, Response } from "express";
 import { Product } from "../types/product";
-import { ref, get, set, push, remove } from "firebase/database";
+import { ref, get, remove } from "firebase/database";
 import { database } from "../firebaseConfig";
 
 let productsCache: any = null;
@@ -151,7 +153,7 @@ export const getProductById = async (req: Request, res: Response) => {
 
 export const create = async (req: Request, res: Response) => {
   try {
-    const newProduct: Product = req.body;
+    const newProduct: Product = normalizeNumbers(req.body);
 
     if (!newProduct.warehouse)
       return res.status(400).json({ message: "warehouse is required" });
@@ -187,6 +189,7 @@ export const updateQuantityOnSell = async (
   warehouse: string,
   soldQuantity: number,
 ): Promise<Product | null> => {
+  soldQuantity = roundNumber(soldQuantity);
   const productRef = ref(database, `products/${warehouse}/${productId}`);
   console.log(soldQuantity);
   const snapshot = await get(productRef);
@@ -205,7 +208,7 @@ export const updateQuantityOnSell = async (
 
   fetchReset();
 
-  const newQuantity = existingProduct.quantity - soldQuantity;
+  const newQuantity = roundNumber(decimal(existingProduct.quantity).minus(soldQuantity));
   existingProduct.quantity = newQuantity;
   existingProduct.updatedDate = new Date().toLocaleString();
   console.log(existingProduct);
@@ -284,6 +287,7 @@ export const deleteProduct = async (req: Request, res: Response) => {
 export const createOrUpdateProductInternal = async (
   newProduct: Product,
 ): Promise<Product> => {
+  newProduct = normalizeNumbers(newProduct);
   const NowDate = new Date().toLocaleString();
 
   const warehousePath = `products/${newProduct.warehouse}`;
@@ -304,7 +308,7 @@ export const createOrUpdateProductInternal = async (
         const updatedProduct: Product = {
           ...existingProduct,
           ...newProduct,
-          quantity: existingProduct.quantity + newProduct.quantity,
+          quantity: roundNumber(decimal(existingProduct.quantity).plus(newProduct.quantity)),
           updatedDate: NowDate,
           id: productId, // مهم جداً: المفتاح من الـ DB
         };

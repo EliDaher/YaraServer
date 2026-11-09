@@ -21,18 +21,20 @@ var __rest = (this && this.__rest) || function (s, e) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createReturnInternal = exports.createReturn = exports.getReturnById = exports.getAllReturns = void 0;
-const database_1 = require("firebase/database");
+const numbers_1 = require("../utils/numbers");
+const database_1 = require("../utils/database");
+const database_2 = require("firebase/database");
 const uuid_1 = require("uuid");
 // ✅ helper لتطبيق التعديل على الكمية
 function applyReturnToProduct(product, type, qty) {
     if (type === "sale-return") {
-        product.quantity += qty;
+        product.quantity = (0, numbers_1.roundNumber)((0, numbers_1.decimal)(product.quantity).plus(qty));
     }
     else if (type === "purchase-return") {
         if (product.quantity < qty) {
             throw new Error("❌ الكمية غير كافية في المخزون للإرجاع");
         }
-        product.quantity -= qty;
+        product.quantity = (0, numbers_1.roundNumber)((0, numbers_1.decimal)(product.quantity).minus(qty));
     }
     else {
         throw new Error("❌ نوع الإرجاع غير صحيح (sale-return | purchase-return)");
@@ -41,9 +43,9 @@ function applyReturnToProduct(product, type, qty) {
 // ✅ get all returns
 const getAllReturns = (_req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const db = (0, database_1.getDatabase)();
-        const returnsRef = (0, database_1.ref)(db, "returns");
-        const snapshot = yield (0, database_1.get)(returnsRef);
+        const db = (0, database_2.getDatabase)();
+        const returnsRef = (0, database_2.ref)(db, "returns");
+        const snapshot = yield (0, database_2.get)(returnsRef);
         const returns = snapshot.exists() ? Object.values(snapshot.val()) : [];
         res.json(returns);
     }
@@ -61,9 +63,9 @@ const getReturnById = (req, res) => __awaiter(void 0, void 0, void 0, function* 
     if (!id)
         return res.status(400).json({ message: "❌ return id is required" });
     try {
-        const db = (0, database_1.getDatabase)();
-        const returnRef = (0, database_1.ref)(db, `returns/${id}`);
-        const snapshot = yield (0, database_1.get)(returnRef);
+        const db = (0, database_2.getDatabase)();
+        const returnRef = (0, database_2.ref)(db, `returns/${id}`);
+        const snapshot = yield (0, database_2.get)(returnRef);
         if (!snapshot.exists()) {
             return res.status(404).json({ message: "❌ عملية الإرجاع غير موجودة" });
         }
@@ -85,9 +87,9 @@ const createReturn = (req, res) => __awaiter(void 0, void 0, void 0, function* (
             .json({ message: "❌ productCode, warehouse, qty, type مطلوبة" });
     }
     try {
-        const db = (0, database_1.getDatabase)();
-        const productRef = (0, database_1.ref)(db, `products/${warehouse}/${productCode}`);
-        const productSnap = yield (0, database_1.get)(productRef);
+        const db = (0, database_2.getDatabase)();
+        const productRef = (0, database_2.ref)(db, `products/${warehouse}/${productCode}`);
+        const productSnap = yield (0, database_2.get)(productRef);
         if (!productSnap.exists()) {
             return res
                 .status(404)
@@ -113,7 +115,7 @@ const createReturn = (req, res) => __awaiter(void 0, void 0, void 0, function* (
             executer: executer || "Unknown",
             createdDate: now,
         };
-        yield (0, database_1.set)((0, database_1.ref)(db, `returns/${returnId}`), returnRecord);
+        yield (0, database_1.set)((0, database_2.ref)(db, `returns/${returnId}`), returnRecord);
         res.json({
             message: "✅ تم تسجيل عملية الإرجاع",
             data: { returnRecord, product },
@@ -129,10 +131,11 @@ exports.createReturn = createReturn;
 // ✅ create return internal (للاستخدام داخل النظام)
 const createReturnInternal = (newReturn) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const db = (0, database_1.getDatabase)();
+        newReturn = (0, numbers_1.normalizeNumbers)(newReturn);
+        const db = (0, database_2.getDatabase)();
         const { applyStock = true } = newReturn, returnData = __rest(newReturn, ["applyStock"]);
-        const productRef = (0, database_1.ref)(db, `products/${returnData.warehouse}/${returnData.productId}`);
-        const productSnap = yield (0, database_1.get)(productRef);
+        const productRef = (0, database_2.ref)(db, `products/${returnData.warehouse}/${returnData.productId}`);
+        const productSnap = yield (0, database_2.get)(productRef);
         if (!productSnap.exists()) {
             throw new Error("❌ المنتج غير موجود في المستودع");
         }
@@ -145,7 +148,7 @@ const createReturnInternal = (newReturn) => __awaiter(void 0, void 0, void 0, fu
         }
         const id = (0, uuid_1.v4)();
         const returnRecord = Object.assign(Object.assign({}, returnData), { id, createdDate: now });
-        yield (0, database_1.set)((0, database_1.ref)(db, `returns/${id}`), returnRecord);
+        yield (0, database_1.set)((0, database_2.ref)(db, `returns/${id}`), returnRecord);
         return { returnRecord, product };
     }
     catch (error) {

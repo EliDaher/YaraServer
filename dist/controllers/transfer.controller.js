@@ -10,11 +10,12 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createTransferInternal = void 0;
-const database_1 = require("firebase/database");
+const database_1 = require("../utils/database");
+const database_2 = require("firebase/database");
 const firebaseConfig_1 = require("../firebaseConfig");
 const createTransferInternal = (data) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const transferRef = yield (0, database_1.push)((0, database_1.ref)(firebaseConfig_1.database, "warehouseTransfers"), {
+        const transferRef = yield (0, database_1.push)((0, database_2.ref)(firebaseConfig_1.database, "warehouseTransfers"), {
             productId: data.productId,
             productCode: data.code,
             productName: data.name,

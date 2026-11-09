@@ -1,9 +1,11 @@
+import { decimal, roundNumber } from "../utils/numbers";
+import { set, update } from "../utils/database";
 import { v4 as uuidv4 } from "uuid";
 import { Customer } from "../types/customer";
 import { Request, Response } from "express";
 import { sell } from "../types/sell";
 import { Payment } from "../types/payment";
-import { ref, get, set, update, remove } from "firebase/database";
+import { ref, get, remove } from "firebase/database";
 import { database } from "../firebaseConfig";
 
 /* =========================================================
@@ -107,14 +109,14 @@ export const updateCustomerInternal = async (
 
   if (sellUpdates) {
     updatedCustomer.balance =
-      (customer.balance || 0) - (sellUpdates.remainingDebt || 0);
+      decimal(customer.balance || 0).minus(sellUpdates.remainingDebt || 0).toNumber();
     updatedCustomer.purchases = [
       ...(customer.purchases || []),
       sellUpdates.id || "",
     ];
   } else if (payUpdates) {
     updatedCustomer.balance =
-      (customer.balance || 0) + (payUpdates.amount || 0);
+      decimal(customer.balance || 0).plus(payUpdates.amount || 0).toNumber();
   }
 
   await update(dbRef, updatedCustomer);
@@ -214,7 +216,7 @@ export const updateCustomerBalanceInternal = async (
   const customer = snapshot.val() as Customer;
   const updatedCustomer = {
     ...customer,
-    balance: (customer.balance || 0) + amountChange,
+    balance: roundNumber(decimal(customer.balance || 0).plus(roundNumber(amountChange))),
     updatedDate: new Date().toLocaleString(),
   };
 
