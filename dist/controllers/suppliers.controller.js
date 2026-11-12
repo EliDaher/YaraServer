@@ -9,7 +9,8 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getSupplierById = exports.getSupplierByIdInternal = exports.getAllsupplierInternal = exports.deleteSupplierInternal = exports.updateSupplierBalanceInternal = exports.updateSupplierInternal = exports.updateSupplierInfo = exports.createSupplierInternal = exports.create = exports.getAll = void 0;
+exports.getSupplierById = exports.getSupplierByIdInternal = exports.getAllsupplierInternal = exports.deleteSupplierInternal = exports.updateSupplierBalanceInternal = exports.updateSupplierInternal = exports.updateSupplierInfo = exports.createSupplierInternal = exports.create = exports.getSupplierSummary = exports.getSupplierPage = exports.getAll = void 0;
+const customerSummary_service_1 = require("../services/customerSummary.service");
 const numbers_1 = require("../utils/numbers");
 const database_1 = require("../utils/database");
 const uuid_1 = require("uuid");
@@ -30,6 +31,26 @@ const getAll = (_req, res) => __awaiter(void 0, void 0, void 0, function* () {
 });
 exports.getAll = getAll;
 // ✅ إنشاء أو تحديث مورد
+function sendSupplierSummaries(req, res, paged) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const started = performance.now();
+        const rows = yield (0, customerSummary_service_1.readSupplierSummaries)();
+        if (!rows) {
+            res.status(503).json({ error: "Supplier summaries are temporarily unavailable" });
+            return;
+        }
+        const ready = performance.now();
+        const result = paged ? (0, customerSummary_service_1.pageCustomerSummaries)(rows, req.query, "supplier") : rows;
+        if (process.env.SUPPLIER_SUMMARY_TIMING === "1") {
+            res.setHeader("Server-Timing", `cache;dur=${(ready - started).toFixed(2)}, prepare;dur=${(performance.now() - ready).toFixed(2)}`);
+        }
+        res.json(result);
+    });
+}
+const getSupplierPage = (req, res) => sendSupplierSummaries(req, res, true);
+exports.getSupplierPage = getSupplierPage;
+const getSupplierSummary = (req, res) => sendSupplierSummaries(req, res, false);
+exports.getSupplierSummary = getSupplierSummary;
 const create = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const now = new Date().toLocaleString();
@@ -155,11 +176,14 @@ const getSupplierById = (req, res) => __awaiter(void 0, void 0, void 0, function
             return (match === null || match === void 0 ? void 0 : match[0]) || purchase.productId || purchase.code;
         };
         const formatPurchase = (purchase, productsData) => (Object.assign(Object.assign({}, purchase), { supplierId: normalizeId(purchase.supplierId), productId: findProductId(purchase, productsData), transferCost: Number(purchase.transferCost || 0) }));
-        const purchasesSnapshot = yield (0, database_2.get)((0, database_2.ref)(firebaseConfig_1.database, "purchases"));
+        const [purchasesSnapshot, productsSnapshot, paymentSnapshot] = yield Promise.all([
+            (0, database_2.get)((0, database_2.ref)(firebaseConfig_1.database, "purchases")),
+            (0, database_2.get)((0, database_2.ref)(firebaseConfig_1.database, "products")),
+            (0, database_2.get)((0, database_2.ref)(firebaseConfig_1.database, "payment")),
+        ]);
         const purchasesData = purchasesSnapshot.exists()
             ? purchasesSnapshot.val()
             : {};
-        const productsSnapshot = yield (0, database_2.get)((0, database_2.ref)(firebaseConfig_1.database, "products"));
         const productsData = productsSnapshot.exists() ? productsSnapshot.val() : {};
         const purchasesById = new Map();
         Object.values(purchasesData)
@@ -176,7 +200,6 @@ const getSupplierById = (req, res) => __awaiter(void 0, void 0, void 0, function
         });
         const purchases = Array.from(purchasesById.values());
         // جلب المدفوعات
-        const paymentSnapshot = yield (0, database_2.get)((0, database_2.ref)(firebaseConfig_1.database, "payment"));
         const paymentsData = paymentSnapshot.exists()
             ? Object.values(paymentSnapshot.val())
             : [];

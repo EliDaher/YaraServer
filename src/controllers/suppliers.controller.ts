@@ -1,3 +1,4 @@
+import { pageCustomerSummaries, readSupplierSummaries } from "../services/customerSummary.service";
 import { decimal, roundNumber, normalizeNumbers } from "../utils/numbers";
 import { set, update } from "../utils/database";
 import { v4 as uuidv4 } from "uuid";
@@ -24,6 +25,25 @@ export const getAll = async (_req: Request, res: Response) => {
 };
 
 // ✅ إنشاء أو تحديث مورد
+async function sendSupplierSummaries(req: Request, res: Response, paged: boolean) {
+  const started = performance.now();
+  const rows = await readSupplierSummaries();
+  if (!rows) {
+    res.status(503).json({ error: "Supplier summaries are temporarily unavailable" });
+    return;
+  }
+  const ready = performance.now();
+  const result = paged ? pageCustomerSummaries(rows, req.query, "supplier") : rows;
+  if (process.env.SUPPLIER_SUMMARY_TIMING === "1") {
+    res.setHeader("Server-Timing",
+      `cache;dur=${(ready - started).toFixed(2)}, prepare;dur=${(performance.now() - ready).toFixed(2)}`);
+  }
+  res.json(result);
+}
+
+export const getSupplierPage = (req: Request, res: Response) => sendSupplierSummaries(req, res, true);
+export const getSupplierSummary = (req: Request, res: Response) => sendSupplierSummaries(req, res, false);
+
 export const create = async (req: Request, res: Response) => {
   try {
     const now = new Date().toLocaleString();
@@ -209,11 +229,14 @@ export const getSupplierById = async (req: Request, res: Response) => {
       transferCost: Number(purchase.transferCost || 0),
     });
 
-    const purchasesSnapshot = await get(ref(database, "purchases"));
+    const [purchasesSnapshot, productsSnapshot, paymentSnapshot] = await Promise.all([
+      get(ref(database, "purchases")),
+      get(ref(database, "products")),
+      get(ref(database, "payment")),
+    ]);
     const purchasesData = purchasesSnapshot.exists()
       ? purchasesSnapshot.val()
       : {};
-    const productsSnapshot = await get(ref(database, "products"));
     const productsData = productsSnapshot.exists() ? productsSnapshot.val() : {};
     const purchasesById = new Map<string, any>();
 
@@ -237,7 +260,6 @@ export const getSupplierById = async (req: Request, res: Response) => {
     const purchases = Array.from(purchasesById.values());
 
     // جلب المدفوعات
-    const paymentSnapshot = await get(ref(database, "payment"));
     const paymentsData = paymentSnapshot.exists()
       ? Object.values(paymentSnapshot.val())
       : [];

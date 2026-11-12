@@ -9,7 +9,8 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.updateCustomerBalanceInternal = exports.getCustomerById = exports.getCustomerByIdInternal = exports.getAllcustomerInternal = exports.deleteCustomerInternal = exports.updateCustomerInternal = exports.updateCustomerInfo = exports.createCustomerInternal = exports.create = exports.getAll = void 0;
+exports.updateCustomerBalanceInternal = exports.getCustomerById = exports.getCustomerByIdInternal = exports.getAllcustomerInternal = exports.deleteCustomerInternal = exports.updateCustomerInternal = exports.updateCustomerInfo = exports.createCustomerInternal = exports.create = exports.getCustomerPage = exports.getCustomerSummary = exports.getAll = void 0;
+const customerSummary_service_1 = require("../services/customerSummary.service");
 const numbers_1 = require("../utils/numbers");
 const database_1 = require("../utils/database");
 const uuid_1 = require("uuid");
@@ -30,6 +31,34 @@ const getAll = (_req, res) => __awaiter(void 0, void 0, void 0, function* () {
     }
 });
 exports.getAll = getAll;
+function sendCustomerSummaries(req, res, paged) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const started = performance.now();
+        const rows = yield (0, customerSummary_service_1.readCustomerSummaries)();
+        const ready = performance.now();
+        if (!rows) {
+            res.status(503).json({ error: "Customer summaries are temporarily unavailable" });
+            return;
+        }
+        const result = paged ? (0, customerSummary_service_1.pageCustomerSummaries)(rows, req.query) : rows;
+        if (process.env.CUSTOMER_SUMMARY_TIMING !== "1") {
+            res.json(result);
+            return;
+        }
+        const body = JSON.stringify(result);
+        const wait = (ready - started).toFixed(2);
+        const prepare = (performance.now() - ready).toFixed(2);
+        res.setHeader("Server-Timing", `cache;dur=${wait}, prepare;dur=${prepare}`);
+        console.info("[customer-summary]", {
+            waitMs: Number(wait), prepareMs: Number(prepare), bytes: Buffer.byteLength(body),
+        });
+        res.type("json").send(body);
+    });
+}
+const getCustomerSummary = (req, res) => sendCustomerSummaries(req, res, false);
+exports.getCustomerSummary = getCustomerSummary;
+const getCustomerPage = (req, res) => sendCustomerSummaries(req, res, true);
+exports.getCustomerPage = getCustomerPage;
 /* =========================================================
    ✅ 2. إنشاء عميل جديد
    ========================================================= */
@@ -144,7 +173,10 @@ const getCustomerById = (req, res) => __awaiter(void 0, void 0, void 0, function
     const { id } = req.body;
     try {
         // 🔹 جلب العميل فقط
-        const customerSnap = yield (0, database_2.get)((0, database_2.ref)(firebaseConfig_1.database, `customer/${id}`));
+        const [customerSnap, paymentsSnap] = yield Promise.all([
+            (0, database_2.get)((0, database_2.ref)(firebaseConfig_1.database, `customer/${id}`)),
+            (0, database_2.get)((0, database_2.query)((0, database_2.ref)(firebaseConfig_1.database, "payment"), (0, database_2.orderByChild)("customerId"), (0, database_2.equalTo)(id))),
+        ]);
         if (!customerSnap.exists())
             return res.status(404).json({ error: "Customer not found" });
         const customer = customerSnap.val();
@@ -158,11 +190,7 @@ const getCustomerById = (req, res) => __awaiter(void 0, void 0, void 0, function
             purchases = (yield Promise.all(promises)).filter(Boolean);
         }
         // 🔹 جلب مدفوعاته فقط
-        const paymentsRef = (0, database_2.ref)(firebaseConfig_1.database, "payment");
-        const paymentsSnap = yield (0, database_2.get)(paymentsRef);
-        const payments = paymentsSnap.exists()
-            ? Object.values(paymentsSnap.val()).filter((p) => p.customerId === id)
-            : [];
+        const payments = paymentsSnap.exists() ? Object.values(paymentsSnap.val()) : [];
         res.json({
             data: Object.assign(Object.assign({}, customer), { purchases,
                 payments }),

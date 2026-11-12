@@ -7,6 +7,8 @@ const express_1 = __importDefault(require("express"));
 const suppliers_controller_1 = require("../controllers/suppliers.controller");
 const router = express_1.default.Router();
 router.get('/', suppliers_controller_1.getAll);
+router.get('/page', suppliers_controller_1.getSupplierPage);
+router.get('/summary', suppliers_controller_1.getSupplierSummary);
 router.post('/', suppliers_controller_1.create);
 router.put("/:id", suppliers_controller_1.updateSupplierInfo);
 router.post('/byId', suppliers_controller_1.getSupplierById);

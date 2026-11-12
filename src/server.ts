@@ -2,8 +2,11 @@ import dotenv from "dotenv";
 import http from "http";
 import { Server } from "socket.io";
 import app from "./app";
+import { startCustomerSummaries, startSupplierSummaries } from "./services/customerSummary.service";
 
 dotenv.config();
+startCustomerSummaries();
+startSupplierSummaries();
 
 const PORT = process.env.PORT || 5000;
 

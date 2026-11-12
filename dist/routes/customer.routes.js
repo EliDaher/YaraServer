@@ -7,6 +7,8 @@ const express_1 = __importDefault(require("express"));
 const customer_controller_1 = require("../controllers/customer.controller");
 const router = express_1.default.Router();
 router.get('/', customer_controller_1.getAll);
+router.get('/summary', customer_controller_1.getCustomerSummary);
+router.get('/page', customer_controller_1.getCustomerPage);
 router.post('/', customer_controller_1.create);
 router.post('/byId', customer_controller_1.getCustomerById);
 router.put("/:id", customer_controller_1.updateCustomerInfo);

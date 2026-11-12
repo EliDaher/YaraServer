@@ -22,13 +22,38 @@ const write = (path, value) => {
   else parent[last] = clone(value);
 };
 const ref = (_database, path) => ({ path, key: path.split("/").pop() });
+const listeners = new Map();
+const emit = (path, value) => {
+  for (const callback of listeners.get(path) ?? []) callback({ val: () => clone(value) });
+};
 const firebase = {
+  onValue: (reference, callback) => {
+    const callbacks = listeners.get(reference.path) ?? new Set();
+    listeners.set(reference.path, callbacks);
+    callbacks.add(callback);
+    return () => {
+      callbacks.delete(callback);
+      if (!callbacks.size) listeners.delete(reference.path);
+    };
+  },
   ref,
   getDatabase: () => ({}),
-  get: async (reference) => ({
-    exists: () => read(reference.path) !== null,
-    val: () => clone(read(reference.path)),
-  }),
+  orderByChild: (field) => field,
+  equalTo: (value) => value,
+  query: (reference, field, value) => ({ ...reference, field, value }),
+  get: async (reference) => {
+    let value = read(reference.path);
+    if (reference.field && value) {
+      const matches = Object.entries(value).filter(
+        ([, item]) => item[reference.field] === reference.value,
+      );
+      value = matches.length ? Object.fromEntries(matches) : null;
+    }
+    return {
+      exists: () => value !== null,
+      val: () => clone(value),
+    };
+  },
   set: async (reference, value) => write(reference.path, value),
   update: async (reference, value) => {
     for (const [key, item] of Object.entries(value))
@@ -54,6 +79,8 @@ const products = require("../src/controllers/products.controller");
 const sells = require("../src/controllers/sells.controller");
 const payments = require("../src/controllers/payments.controller");
 const suppliers = require("../src/controllers/suppliers.controller");
+const customers = require("../src/controllers/customer.controller");
+const customerSummaries = require("../src/services/customerSummary.service");
 Module._load = load;
 const response = () => ({
   statusCode: 200,
@@ -311,4 +338,160 @@ test("supplier partial return rounds the stock, payment and debt change", async 
   assert.equal(store.purchases.purchase.quantity, 1.87);
   assert.equal(store.supplier.s.balance, 2.8);
   assert.equal(Object.values(store.payment)[0].amount, 0.11);
+});
+
+test("customer summaries preserve balances and count purchases without sending their IDs", async () => {
+  store.customer = {
+    c: { id: "c", name: "Customer", number: "0", balance: -4.75, updatedDate: "date", purchases: ["s1", "s2"] },
+    empty: { id: "empty", name: "Empty", balance: 0 },
+  };
+
+  customerSummaries.startCustomerSummaries();
+  emit(".info/connected", true);
+  emit("customer", store.customer);
+
+  const res = response();
+  await customers.getCustomerSummary({}, res);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(res.body)), [
+    { id: "c", name: "Customer", number: "0", balance: -4.75, updatedDate: "date", purchasesCount: 2 },
+    { id: "empty", name: "Empty", balance: 0, purchasesCount: 0 },
+  ]);
+});
+
+test("customer details select matching payments and preserve invoice order with missing invoices", async () => {
+  store.customer = {
+    c: { id: "c", balance: -4.75, purchases: ["s2", "missing", "s1"] },
+    empty: { id: "empty", balance: 0 },
+  };
+  store.sells = { s1: { id: "s1" }, s2: { id: "s2" } };
+  store.payment = { own: { customerId: "c" }, other: { customerId: "other" } };
+
+  const res = response();
+  await customers.getCustomerById({ body: { id: "c" } }, res);
+  assert.deepEqual(res.body.data, {
+    id: "c",
+    balance: -4.75,
+    purchases: [{ id: "s2" }, { id: "s1" }],
+    payments: [{ customerId: "c" }],
+  });
+
+  const empty = response();
+  await customers.getCustomerById({ body: { id: "empty" } }, empty);
+  assert.deepEqual(empty.body.data, { id: "empty", balance: 0, purchases: [], payments: [] });
+});
+
+test("customer pages search across pages, sort before slicing, and keep overall debt", async () => {
+  const records = Object.fromEntries(Array.from({ length: 12 }, (_, index) => [
+    String(index),
+    {
+      id: String(index),
+      name: index === 11 ? "محمد سالم" : "Customer",
+      number: index === 11 ? "09\u0661\u0662\u0663" : "",
+      balance: -index,
+      updatedDate: index === 11 ? "1/2/2026, 4:30:00 PM" : "12/1/2025, 4:30:00 PM",
+    },
+  ]));
+  emit("customer", records);
+
+  const page = async (query) => {
+    const res = response();
+    await customers.getCustomerPage({ query }, res);
+    return res.body;
+  };
+  const second = await page({ page: "2", pageSize: "5", sortBy: "balance", sortDirection: "asc" });
+  assert.deepEqual(second.items.map(row => row.id), ["6", "5", "4", "3", "2"]);
+  const byName = await page({ search: " سالم ", page: "8" });
+  assert.equal(byName.page, 1);
+  assert.equal(byName.totalItems, 1);
+  assert.equal(byName.items[0].id, "11");
+  const byNumber = await page({ search: "912" });
+  assert.equal(byNumber.items[0].id, "11");
+  assert.equal(byNumber.totalDebt, 66);
+  assert.equal((await page({ sortBy: "updatedDate", sortDirection: "desc" })).items[0].id, "11");
+
+  emit(".info/connected", false);
+  assert.equal(listeners.has("customer"), false);
+  const waiting = page({});
+  emit(".info/connected", true);
+  emit("customer", { 11: { ...records[11], balance: -4 } });
+  assert.equal((await waiting).totalDebt, 4);
+});
+
+test("third customer page includes legacy rows with a safe balance and correct totals", async () => {
+  const records = Array.from({ length: 30 }, (_, index) => ({
+    id: String(index).padStart(2, "0"),
+    balance: index === 20 ? undefined : index === 21 ? "invalid" : index === 22 ? -5.25 : 0,
+  }));
+  emit("customer", records);
+
+  const res = response();
+  await customers.getCustomerPage({ query: { page: "3" } }, res);
+  assert.equal(res.body.page, 3);
+  assert.equal(res.body.items.length, 10);
+  assert.deepEqual(res.body.items.slice(0, 3).map(row => row.balance), [0, 0, -5.25]);
+  assert.equal(res.body.totalDebt, 5.25);
+  assert.equal(res.body.totalBalance, -5.25);
+
+  const sorted = response();
+  await customers.getCustomerPage({ query: { sortBy: "balance", sortDirection: "asc" } }, sorted);
+  assert.deepEqual(sorted.body.items.slice(0, 2).map(row => row.balance), [-5.25, 0]);
+});
+
+test("supplier pages include matches outside the first page and count only positive debts", async () => {
+  customerSummaries.startSupplierSummaries();
+  const res = response();
+  const pending = suppliers.getSupplierPage({ query: { pageSize: "3", search: "123" } }, res);
+  emit(".info/connected", true);
+  const records = Array.from({ length: 12 }, (_, index) => ({
+    id: String(index).padStart(2, "0"),
+    name: index === 11 ? "Target Supplier" : "Supplier",
+    number: index === 11 ? "09\u0661\u0662\u0663" : "",
+    balance: index === 11 ? undefined : index - 5,
+    purchases: index === 11 ? ["p"] : [],
+  }));
+  emit("supplier", records);
+  await pending;
+  assert.equal(res.body.pageSize, 3);
+  assert.equal(res.body.totalItems, 1);
+  assert.equal(res.body.items[0].id, "11");
+  assert.equal(res.body.items[0].balance, 0);
+  assert.equal(res.body.items[0].purchasesCount, 1);
+  assert.equal(res.body.totalDebt, 15);
+
+  const page = response();
+  await suppliers.getSupplierPage({ query: { page: "2", pageSize: "3", sortBy: "balance", sortDirection: "desc" } }, page);
+  assert.deepEqual(page.body.items.map(row => row.balance), [2, 1, 0]);
+
+  emit(".info/connected", false);
+  assert.equal(listeners.has("supplier"), false);
+  const summary = response();
+  const reconnect = suppliers.getSupplierSummary({}, summary);
+  emit(".info/connected", true);
+  emit("supplier", [{ ...records[11], balance: 10 }]);
+  await reconnect;
+  assert.equal(summary.body[0].balance, 10);
+});
+
+test("supplier details merge legacy and linked purchases and payments", async () => {
+  store.supplier = { s: { id: "s", purchases: ["linked", "legacy"] }, empty: { id: "empty" } };
+  store.purchases = {
+    linked: { id: "linked", supplierId: { id: "s" } },
+    legacy: { id: "legacy" },
+    other: { id: "other", supplierId: "other" },
+  };
+  store.payment = {
+    linked: { id: "linked", supplierId: "s" },
+    legacy: { id: "legacy", supplierId: { id: "s" } },
+    other: { id: "other", supplierId: "other" },
+  };
+
+  const details = response();
+  await suppliers.getSupplierById({ body: { id: "s" } }, details);
+  assert.deepEqual(details.body.data.purchases.map(row => row.id), ["linked", "legacy"]);
+  assert.deepEqual(details.body.data.payments.map(row => row.id), ["linked", "legacy"]);
+
+  const empty = response();
+  await suppliers.getSupplierById({ body: { id: "empty" } }, empty);
+  assert.deepEqual(empty.body.data, { id: "empty", purchases: [], payments: [] });
 });
